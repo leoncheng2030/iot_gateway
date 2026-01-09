@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>vip.xiaonuo</groupId>
+        <artifactId>snowy</artifactId>
+        <version>3.0.0</version>
+    </parent>
+
+    <artifactId>snowy-plugin-api</artifactId>
+    <packaging>pom</packaging>
+    <description>插件API接口模块</description>
+
+    <modules>
+        <!-- 登录鉴权插件api接口 -->
+        <module>snowy-plugin-auth-api</module>
+
+        <!-- 业务功能插件api接口 -->
+        <module>snowy-plugin-biz-api</module>
+        
+        <!-- 开发工具插件api接口 -->
+        <module>snowy-plugin-dev-api</module>
+
+        <!-- 代码生成插件api接口 -->
+        <module>snowy-plugin-gen-api</module>
+
+        <!-- 移动端管理插件api接口 -->
+        <module>snowy-plugin-mobile-api</module>
+
+        <!-- 系统功能插件api接口 -->
+        <module>snowy-plugin-sys-api</module>
+
+        <!-- 物联网功能插件api接口 -->
+        <module>snowy-plugin-iot-api</module>
+    </modules>
+</project>
