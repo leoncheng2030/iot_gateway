@@ -40,6 +40,7 @@ import vip.xiaonuo.iot.modular.rulelog.entity.IotRuleLog;
 import vip.xiaonuo.iot.modular.rulelog.service.IotRuleLogService;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,26 +89,62 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             List<IotRule> rules = iotRuleService.list(queryWrapper);
             for (IotRule rule : rules) {
                 try {
-                    // 支持数组格式的触发条件（多条件）
-                    JSONArray conditions = JSONUtil.parseArray(rule.getTriggerCondition());
-                    if (conditions.isEmpty()) {
+                    // 解析工作流数据
+                    String workflowData = rule.getWorkflowData();
+                    if (StrUtil.isBlank(workflowData)) {
+                        log.warn("规则工作流数据为空 - RuleId: {}", rule.getId());
                         continue;
                     }
                     
-                    // 只处理第一个条件（简化处理，后续可扩展为多条件逻辑）
-                    JSONObject condition = conditions.getJSONObject(0);
-                    // 检查是否匹配该设备
-                    String conditionDeviceId = condition.getStr("deviceId");
-                    if (!deviceId.equals(conditionDeviceId)) {
-                        log.debug("设备ID不匹配，跳过此规则 - 期望: {}, 实际: {}", conditionDeviceId, deviceId);
+                    JSONObject workflow = JSONUtil.parseObj(workflowData);
+                    JSONArray nodes = workflow.getJSONArray("nodes");
+                    JSONArray edges = workflow.getJSONArray("edges");
+                    if (nodes == null || nodes.isEmpty()) {
                         continue;
                     }
-
-                    // 评估条件是否满足
-                    if (evaluateCondition(condition, data)) {
-                        executeRule(rule, data);
-                    } else {
-                        log.info("规则条件不满足 - RuleId: {}", rule.getId());
+                    
+                    // 查找触发器节点
+                    for (int i = 0; i < nodes.size(); i++) {
+                        JSONObject node = nodes.getJSONObject(i);
+                        if (!"trigger".equals(node.getStr("type"))) {
+                            continue;
+                        }
+                        
+                        JSONObject properties = node.getJSONObject("properties");
+                        if (properties == null) {
+                            continue;
+                        }
+                        
+                        // 检查是否为设备触发器
+                        if (!"device".equals(properties.getStr("triggerType"))) {
+                            continue;
+                        }
+                        
+                        // 检查设备ID是否匹配
+                        String triggerDeviceId = properties.getStr("deviceId");
+                        if (!deviceId.equals(triggerDeviceId)) {
+                            log.debug("设备ID不匹配，跳过此规则 - 期望: {}, 实际: {}", triggerDeviceId, deviceId);
+                            continue;
+                        }
+                        
+                        // 找到匹配的触发器，查找连接的条件节点
+                        String triggerNodeId = node.getStr("id");
+                        boolean conditionMet = evaluateWorkflowConditions(nodes, edges, triggerNodeId, data);
+                        
+                        if (conditionMet) {
+                            log.info("规则条件满足，执行工作流 - RuleId: {}", rule.getId());
+                            try {
+                                executeWorkflow(workflow, data);
+                                // 执行成功，保存日志
+                                saveRuleLog(rule, data.toString(), "SUCCESS", null);
+                            } catch (Exception workflowException) {
+                                // 执行失败，保存错误日志
+                                log.error("工作流执行失败 - RuleId: {}", rule.getId(), workflowException);
+                                saveRuleLog(rule, data.toString(), "FAILED", workflowException.getMessage());
+                            }
+                        } else {
+                            log.info("规则条件不满足 - RuleId: {}", rule.getId());
+                        }
                     }
                 } catch (Exception e) {
                     log.error("规则执行异常 - RuleId: {}", rule.getId(), e);
@@ -131,7 +168,24 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             for (IotRule rule : rules) {
                 try {
                     log.info("定时规则触发 - RuleId: {}, RuleName: {}", rule.getId(), rule.getRuleName());
-                    executeRule(rule, null);
+                    
+                    // 解析工作流数据
+                    String workflowData = rule.getWorkflowData();
+                    if (StrUtil.isBlank(workflowData)) {
+                        log.warn("规则工作流数据为空 - RuleId: {}", rule.getId());
+                        continue;
+                    }
+                    
+                    JSONObject workflow = JSONUtil.parseObj(workflowData);
+                    try {
+                        executeWorkflow(workflow, null);
+                        // 执行成功，保存日志
+                        saveRuleLog(rule, null, "SUCCESS", null);
+                    } catch (Exception workflowException) {
+                        // 执行失败，保存错误日志
+                        log.error("工作流执行失败 - RuleId: {}", rule.getId(), workflowException);
+                        saveRuleLog(rule, null, "FAILED", workflowException.getMessage());
+                    }
                 } catch (Exception e) {
                     log.error("定时规则执行异常 - RuleId: {}", rule.getId(), e);
                     saveRuleLog(rule, null, "FAILED", e.getMessage());
@@ -139,6 +193,198 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             }
         } catch (Exception e) {
             log.error("定时规则引擎处理异常", e);
+        }
+    }
+
+    /**
+     * 评估工作流条件是否满足
+     * @param nodes 所有节点
+     * @param edges 所有连线
+     * @param triggerNodeId 触发器节点ID
+     * @param data 设备数据
+     * @return 条件是否满足
+     */
+    private boolean evaluateWorkflowConditions(JSONArray nodes, JSONArray edges, String triggerNodeId, JSONObject data) {
+        // 查找从触发器连接出来的条件节点
+        if (edges == null || edges.isEmpty()) {
+            log.warn("工作流没有连线，默认条件满足");
+            return true; // 没有连线则直接执行
+        }
+        
+        // 查找所有从触发器连接的条件节点
+        List<String> conditionNodeIds = new ArrayList<>();
+        for (int i = 0; i < edges.size(); i++) {
+            JSONObject edge = edges.getJSONObject(i);
+            String sourceNodeId = edge.getStr("sourceNodeId");
+            String targetNodeId = edge.getStr("targetNodeId");
+            
+            if (triggerNodeId.equals(sourceNodeId)) {
+                // 找到触发器的下游节点
+                conditionNodeIds.add(targetNodeId);
+            }
+        }
+        
+        if (conditionNodeIds.isEmpty()) {
+            log.warn("触发器没有连接条件节点，默认条件满足");
+            return true; // 没有条件节点则直接执行
+        }
+        
+        // 评估所有条件节点
+        for (String conditionNodeId : conditionNodeIds) {
+            // 查找条件节点
+            JSONObject conditionNode = null;
+            for (int i = 0; i < nodes.size(); i++) {
+                JSONObject node = nodes.getJSONObject(i);
+                if (conditionNodeId.equals(node.getStr("id"))) {
+                    conditionNode = node;
+                    break;
+                }
+            }
+            
+            if (conditionNode == null) {
+                log.warn("未找到条件节点: {}", conditionNodeId);
+                continue;
+            }
+            
+            String nodeType = conditionNode.getStr("type");
+            if (!"condition".equals(nodeType)) {
+                log.debug("节点不是条件节点，跳过: {}", nodeType);
+                continue;
+            }
+            
+            JSONObject properties = conditionNode.getJSONObject("properties");
+            if (properties == null) {
+                log.warn("条件节点属性为null");
+                continue;
+            }
+            
+            // 检查条件类型
+            String conditionType = properties.getStr("conditionType");
+            if ("group".equals(conditionType)) {
+                // 条件组：递归评估子条件
+                String logic = properties.getStr("logic"); // AND 或 OR
+                boolean groupResult = evaluateConditionGroup(nodes, edges, conditionNodeId, data, logic);
+                if (!groupResult) {
+                    log.info("条件组不满足: {}", conditionNodeId);
+                    return false;
+                }
+            } else {
+                // 简单条件：直接评估
+                boolean conditionMet = evaluateCondition(properties, data);
+                if (!conditionMet) {
+                    log.info("条件节点不满足: {}", conditionNodeId);
+                    return false;
+                }
+            }
+        }
+        
+        log.info("所有条件节点都满足");
+        return true;
+    }
+
+    /**
+     * 评估条件组是否满足
+     * @param nodes 所有节点
+     * @param edges 所有连线
+     * @param groupNodeId 条件组节点ID
+     * @param data 设备数据
+     * @param logic 逻辑关系 (AND/OR)
+     * @return 条件组是否满足
+     */
+    private boolean evaluateConditionGroup(JSONArray nodes, JSONArray edges, String groupNodeId, JSONObject data, String logic) {
+        log.info("评估条件组 - GroupId: {}, Logic: {}", groupNodeId, logic);
+        
+        // 查找从条件组连接出来的子条件节点
+        List<String> childConditionIds = new ArrayList<>();
+        for (int i = 0; i < edges.size(); i++) {
+            JSONObject edge = edges.getJSONObject(i);
+            String sourceNodeId = edge.getStr("sourceNodeId");
+            String targetNodeId = edge.getStr("targetNodeId");
+            
+            if (groupNodeId.equals(sourceNodeId)) {
+                childConditionIds.add(targetNodeId);
+            }
+        }
+        
+        if (childConditionIds.isEmpty()) {
+            log.warn("条件组没有子条件节点: {}", groupNodeId);
+            return false;
+        }
+        
+        log.info("条件组包含 {} 个子条件", childConditionIds.size());
+        
+        // 根据逻辑关系评估子条件
+        if ("AND".equals(logic)) {
+            // AND 逻辑：所有子条件都必须满足
+            for (String childId : childConditionIds) {
+                if (!evaluateChildCondition(nodes, edges, childId, data)) {
+                    log.info("AND 逻辑 - 子条件不满足: {}", childId);
+                    return false;
+                }
+            }
+            log.info("AND 逻辑 - 所有子条件都满足");
+            return true;
+        } else if ("OR".equals(logic)) {
+            // OR 逻辑：任一子条件满足即可
+            for (String childId : childConditionIds) {
+                if (evaluateChildCondition(nodes, edges, childId, data)) {
+                    log.info("OR 逻辑 - 子条件满足: {}", childId);
+                    return true;
+                }
+            }
+            log.info("OR 逻辑 - 所有子条件都不满足");
+            return false;
+        } else {
+            log.warn("未知的逻辑关系: {}", logic);
+            return false;
+        }
+    }
+    
+    /**
+     * 评估子条件节点
+     * @param nodes 所有节点
+     * @param edges 所有连线
+     * @param conditionNodeId 条件节点ID
+     * @param data 设备数据
+     * @return 条件是否满足
+     */
+    private boolean evaluateChildCondition(JSONArray nodes, JSONArray edges, String conditionNodeId, JSONObject data) {
+        // 查找条件节点
+        JSONObject conditionNode = null;
+        for (int i = 0; i < nodes.size(); i++) {
+            JSONObject node = nodes.getJSONObject(i);
+            if (conditionNodeId.equals(node.getStr("id"))) {
+                conditionNode = node;
+                break;
+            }
+        }
+        
+        if (conditionNode == null) {
+            log.warn("未找到子条件节点: {}", conditionNodeId);
+            return false;
+        }
+        
+        String nodeType = conditionNode.getStr("type");
+        if (!"condition".equals(nodeType)) {
+            log.warn("节点不是条件节点: {}", nodeType);
+            return false;
+        }
+        
+        JSONObject properties = conditionNode.getJSONObject("properties");
+        if (properties == null) {
+            log.warn("子条件节点属性为null");
+            return false;
+        }
+        
+        // 检查是否是嵌套的条件组
+        String conditionType = properties.getStr("conditionType");
+        if ("group".equals(conditionType)) {
+            // 递归处理嵌套条件组
+            String logic = properties.getStr("logic");
+            return evaluateConditionGroup(nodes, edges, conditionNodeId, data, logic);
+        } else {
+            // 简单条件：直接评估
+            return evaluateCondition(properties, data);
         }
     }
 
@@ -229,38 +475,121 @@ public class RuleEngineServiceImpl implements RuleEngineService {
     }
 
     /**
-     * 执行规则动作
+     * 执行工作流
      */
-    private void executeRule(IotRule rule, JSONObject triggerData) {
+    private void executeWorkflow(JSONObject workflow, JSONObject triggerData) {
         try {
-            JSONArray actions = JSONUtil.parseArray(rule.getActions());
+            JSONArray nodes = workflow.getJSONArray("nodes");
+            if (nodes == null || nodes.isEmpty()) {
+                return;
+            }
             
-            for (int i = 0; i < actions.size(); i++) {
-                JSONObject action = actions.getJSONObject(i);
-                String actionType = action.getStr("type");
-
+            // 查找并执行所有 action 节点
+            for (int i = 0; i < nodes.size(); i++) {
+                JSONObject node = nodes.getJSONObject(i);
+                if (!"action".equals(node.getStr("type"))) {
+                    continue;
+                }
+                
+                JSONObject properties = node.getJSONObject("properties");
+                if (properties == null) {
+                    continue;
+                }
+                
+                String actionType = properties.getStr("actionType");
+                if (StrUtil.isBlank(actionType)) {
+                    continue;
+                }
+                
+                // 执行动作
                 switch (actionType) {
                     case "deviceCommand":
-                        executeDeviceCommand(action);
+                        executeDeviceCommandFromWorkflow(properties);
                         break;
                     case "notification":
-                        executeNotification(action);
+                        executeNotificationFromWorkflow(properties);
                         break;
                     case "webhook":
-                        executeWebhook(action);
+                        executeWebhookFromWorkflow(properties);
                         break;
                     default:
                         log.warn("未知动作类型: {}", actionType);
                 }
             }
-
-            // 记录执行日志
-            saveRuleLog(rule, triggerData != null ? triggerData.toString() : null, "SUCCESS", null);
             
         } catch (Exception e) {
-            log.error("执行规则动作异常 - RuleId: {}", rule.getId(), e);
+            log.error("执行工作流异常", e);
             throw e;
         }
+    }
+    
+    /**
+     * 从工作流节点执行设备指令
+     */
+    private void executeDeviceCommandFromWorkflow(JSONObject properties) {
+        try {
+            String targetDeviceId = properties.getStr("targetDeviceId");
+            String command = properties.getStr("command");
+            String paramsStr = properties.getStr("params");
+            
+            if (StrUtil.isBlank(paramsStr)) {
+                log.warn("参数为空 - Command: {}", command);
+                return;
+            }
+            
+            JSONObject params = JSONUtil.parseObj(paramsStr);
+            
+            // 获取目标设备
+            IotDevice device = iotDeviceService.getById(targetDeviceId);
+            if (ObjectUtil.isNull(device)) {
+                log.warn("目标设备不存在 - DeviceId: {}", targetDeviceId);
+                return;
+            }
+            
+            // 查询设备驱动关联（获取设备配置）
+            LambdaQueryWrapper<IotDeviceDriverRel> relQuery = new LambdaQueryWrapper<>();
+            relQuery.eq(IotDeviceDriverRel::getDeviceId, targetDeviceId);
+            IotDeviceDriverRel driverRel = iotDeviceDriverRelService.getOne(relQuery);
+
+            // 根据设备类型选择不同的执行方式
+            if (ObjectUtil.isNotEmpty(DriverConfigUtil.getIpAddress(driverRel, device))) {
+                // Modbus设备
+                executeModbusCommand(device, driverRel, command, params);
+            } else {
+                // MQTT/其他协议设备
+                executeMqttCommand(device, command, params);
+            }
+            
+            log.info("执行设备指令成功 - DeviceKey: {}, Command: {}", device.getDeviceKey(), command);
+        } catch (Exception e) {
+            log.error("执行设备指令失败", e);
+        }
+    }
+    
+    /**
+     * 从工作流节点执行通知
+     */
+    private void executeNotificationFromWorkflow(JSONObject properties) {
+        // TODO: 实现通知功能
+        log.info("执行通知动作: {}", properties);
+    }
+    
+    /**
+     * 从工作流节点执行Webhook
+     */
+    private void executeWebhookFromWorkflow(JSONObject properties) {
+        // TODO: 实现Webhook功能
+        log.info("执行Webhook动作: {}", properties);
+    }
+
+    /**
+     * 执行规则动作（旧方法，保留兼容）
+     * @deprecated 使用 executeWorkflow 替代
+     */
+    @Deprecated
+    private void executeRule(IotRule rule, JSONObject triggerData) {
+        log.warn("使用了已弃用的 executeRule 方法，请使用 executeWorkflow");
+        // 旧逻辑已移除，请使用工作流方式
     }
 
     /**

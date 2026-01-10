@@ -48,13 +48,9 @@ public class IotRule extends CommonEntity {
     @Schema(description = "规则类型")
     private String ruleType;
 
-    /** 触发条件 */
-    @Schema(description = "触发条件")
-    private String triggerCondition;
-
-    /** 执行动作 */
-    @Schema(description = "执行动作")
-    private String actions;
+    /** 工作流图数据 */
+    @Schema(description = "工作流图数据")
+    private String workflowData;
 
     /** 状态 */
     @Schema(description = "状态")

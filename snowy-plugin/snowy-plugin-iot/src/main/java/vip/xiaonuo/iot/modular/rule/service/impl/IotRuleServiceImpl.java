@@ -175,10 +175,9 @@ public class IotRuleServiceImpl extends ServiceImpl<IotRuleMapper, IotRule> impl
         String id = iotRuleEditParam.getId();
         String ruleName = iotRuleEditParam.getRuleName();
         String ruleType = iotRuleEditParam.getRuleType();
-        String triggerCondition = iotRuleEditParam.getTriggerCondition();
-        String actions = iotRuleEditParam.getActions();
         String status = iotRuleEditParam.getStatus();
-        if(ObjectUtil.hasEmpty(id, ruleName, ruleType, triggerCondition, actions, status)) {
+        // 注意：workflowData 不是必填字段，新建时可以为空
+        if(ObjectUtil.hasEmpty(id, ruleName, ruleType, status)) {
             return JSONUtil.createObj().set("index", i + 1).set("success", false).set("msg", "必填字段存在空值");
         } else {
             try {

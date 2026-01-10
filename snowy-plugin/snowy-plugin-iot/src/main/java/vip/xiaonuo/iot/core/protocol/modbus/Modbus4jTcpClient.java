@@ -221,8 +221,8 @@ public class Modbus4jTcpClient {
                 log.debug("Modbus离线设备重连失败 - DeviceKey: {}, IP: {}:{}", 
                     device.getDeviceKey(), ip, port);
             } else {
-                // 首次连接或在线设备断连，记录ERROR日志
-                log.error("Modbus连接初始化失败 - DeviceKey: {}, IP: {}:{}, 原因: {}", 
+                // 首次连接或在线设备断连，记录WARN日志
+                log.warn("Modbus连接初始化失败 - DeviceKey: {}, IP: {}:{}, 原因: {}", 
                     device.getDeviceKey(), ip, port, e.getMessage());
             }
             return null;

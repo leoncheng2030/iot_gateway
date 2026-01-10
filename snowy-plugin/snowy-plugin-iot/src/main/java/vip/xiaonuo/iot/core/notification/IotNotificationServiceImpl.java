@@ -116,7 +116,7 @@ public class IotNotificationServiceImpl implements IotNotificationService {
     @Override
     public boolean sendDingTalk(String webhook, String title, String content, List<String> atMobiles, boolean isAtAll) {
         if (!dingTalkEnabled) {
-            log.warn("钉钉通知未启用");
+            log.debug("钉钉通知未启用");
             return false;
         }
 

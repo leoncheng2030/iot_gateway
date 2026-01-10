@@ -206,7 +206,7 @@ public class InMemoryMessageHandlers {
 						log.warn("未知的通知类型: {}", type);
 				}
 
-				log.info("通知消息处理完成 - 类型: {}", type);
+				log.debug("通知消息处理完成 - 类型: {}", type);
 
 			} catch (Exception e) {
 				log.error("处理通知消息失败", e);

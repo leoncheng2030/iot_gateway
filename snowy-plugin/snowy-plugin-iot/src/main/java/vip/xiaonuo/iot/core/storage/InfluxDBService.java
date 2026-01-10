@@ -140,6 +140,18 @@ public class InfluxDBService {
                 } else if (value instanceof Boolean) {
                     // 将布尔值转换为整数存储(0或1),避免聚合查询时出错
                     point.addField(key, (Boolean) value ? 1 : 0);
+                } else if (value instanceof String) {
+                    // 尝试将字符串转换为数字
+                    String strValue = (String) value;
+                    try {
+                        // 统一转换为 double 类型，避免 InfluxDB 字段类型冲突
+                        // InfluxDB 中已存在的字段类型无法更改，必须保持一致
+                        double doubleValue = Double.parseDouble(strValue);
+                        point.addField(key, doubleValue);
+                    } catch (NumberFormatException e) {
+                        // 不是数字,存储为字符串
+                        point.addField(key, strValue);
+                    }
                 } else {
                     point.addField(key, value.toString());
                 }

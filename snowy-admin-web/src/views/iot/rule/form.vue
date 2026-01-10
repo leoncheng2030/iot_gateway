@@ -34,7 +34,7 @@
 					</a-form-item>
 				</a-col>
 				<a-col :span="24">
-					<a-alert message="提示:保存后请在规则详情中配置触发条件和执行动作" type="info" show-icon />
+					<a-alert message="提示:保存后请在规则编排中配置工作流" type="info" show-icon />
 				</a-col>
 			</a-row>
 		</a-form>
@@ -90,22 +90,9 @@
 				submitLoading.value = true
 				const formDataParam = cloneDeep(formData.value)
 
-				// 新增时初始化空的触发条件和执行动作
-				if (!formDataParam.id) {
-					if (!formDataParam.triggerCondition) {
-						formDataParam.triggerCondition = JSON.stringify([
-							{
-								deviceId: '',
-								property: '',
-								operator: '==',
-								value: null,
-								logic: 'AND'
-							}
-						])
-					}
-					if (!formDataParam.actions) {
-						formDataParam.actions = JSON.stringify([])
-					}
+				// 新增时初始化空的工作流数据
+				if (!formDataParam.id && !formDataParam.workflowData) {
+					formDataParam.workflowData = JSON.stringify({ nodes: [], edges: [] })
 				}
 
 				iotRuleApi

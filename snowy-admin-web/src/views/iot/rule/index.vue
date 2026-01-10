@@ -76,18 +76,6 @@
 				<template v-if="column.dataIndex === 'ruleType'">
 					{{ $TOOL.dictTypeData('RULE_TYPE', record.ruleType) }}
 				</template>
-				<template v-if="column.dataIndex === 'triggerCondition'">
-					<a-tooltip :title="formatTriggerCondition(record.triggerCondition)">
-						<a-typography-text
-							:ellipsis="{ tooltip: true }"
-							style="max-width: 200px"
-							:content="formatTriggerCondition(record.triggerCondition)"
-						/>
-					</a-tooltip>
-				</template>
-				<template v-if="column.dataIndex === 'actionCount'">
-					<a-badge :count="getActionCount(record.actions)" :number-style="{ backgroundColor: '#52c41a' }" />
-				</template>
 				<template v-if="column.dataIndex === 'status'">
 					<a-badge
 						:status="record.status === 'ENABLE' ? 'success' : 'default'"
@@ -97,9 +85,9 @@
 				<template v-if="column.dataIndex === 'action'">
 					<a-space>
 						<a @click="workflowRef.onOpen(record)">规则编排</a>
-						<a-divider type="vertical" v-if="hasPerm('iotRuleDetail')" />
-						<a @click="detailRef.onOpen(record)" v-if="hasPerm('iotRuleDetail')">详情</a>
-						<a-divider type="vertical" v-if="hasPerm(['iotRuleDetail', 'iotRuleEdit'], 'and')" />
+						<a-divider type="vertical" />
+						<a @click="viewRuleLogs(record)">规则日志</a>
+						<a-divider type="vertical" v-if="hasPerm('iotRuleEdit')" />
 						<a @click="formRef.onOpen(record)" v-if="hasPerm('iotRuleEdit')">编辑</a>
 						<a-divider type="vertical" v-if="hasPerm(['iotRuleEdit', 'iotRuleDelete'], 'and')" />
 						<a-popconfirm title="确定要删除吗？" @confirm="deleteIotRule(record)">
@@ -112,17 +100,17 @@
 	</a-card>
 	<ImportModel ref="importModelRef" />
 	<Form ref="formRef" @successful="tableRef.refresh()" />
-	<Detail ref="detailRef" />
 	<Workflow ref="workflowRef" @successful="tableRef.refresh()" />
+	<RuleLog ref="ruleLogRef" />
 </template>
 
 <script setup name="rule">
 	import tool from '@/utils/tool'
 	import { cloneDeep } from 'lodash-es'
 	import Form from './form.vue'
-	import Detail from './detail.vue'
 	import ImportModel from './importModel.vue'
 	import Workflow from './workflow.vue'
+	import RuleLog from './ruleLog.vue'
 	import downloadUtil from '@/utils/downloadUtil'
 	import iotRuleApi from '@/api/iot/iotRuleApi'
 	const searchFormState = ref({})
@@ -130,8 +118,8 @@
 	const tableRef = ref()
 	const importModelRef = ref()
 	const formRef = ref()
-	const detailRef = ref()
 	const workflowRef = ref()
+	const ruleLogRef = ref()
 	const toolConfig = { refresh: true, height: true, columnSetting: true, striped: false }
 	const columns = [
 		{
@@ -151,18 +139,6 @@
 			align: 'center'
 		},
 		{
-			title: '触发条件',
-			dataIndex: 'triggerCondition',
-			width: 200,
-			ellipsis: true
-		},
-		{
-			title: '执行动作数',
-			dataIndex: 'actionCount',
-			width: 100,
-			align: 'center'
-		},
-		{
 			title: '状态',
 			dataIndex: 'status',
 			width: 100,
@@ -175,7 +151,7 @@
 		}
 	]
 	// 操作栏通过权限判断是否显示
-	if (hasPerm(['iotRuleDetail', 'iotRuleEdit', 'iotRuleDelete'])) {
+	if (hasPerm(['iotRuleEdit', 'iotRuleDelete'])) {
 		columns.push({
 			title: '操作',
 			dataIndex: 'action',
@@ -243,28 +219,9 @@
 			tableRef.value.clearRefreshSelected()
 		})
 	}
-	// 格式化触发条件
-	const formatTriggerCondition = (condition) => {
-		if (!condition) return '-'
-		try {
-			const obj = JSON.parse(condition)
-			if (obj.property && obj.operator && obj.value !== undefined) {
-				return `${obj.property} ${obj.operator} ${obj.value}`
-			}
-			return condition.substring(0, 50) + '...'
-		} catch (e) {
-			return condition.substring(0, 50) + '...'
-		}
-	}
-	// 获取执行动作数量
-	const getActionCount = (actions) => {
-		if (!actions) return 0
-		try {
-			const arr = JSON.parse(actions)
-			return Array.isArray(arr) ? arr.length : 0
-		} catch (e) {
-			return 0
-		}
+	// 查看规则日志
+	const viewRuleLogs = (record) => {
+		ruleLogRef.value.onOpen(record)
 	}
 	const ruleTypeOptions = tool.dictList('RULE_TYPE')
 	const statusOptions = tool.dictList('COMMON_STATUS')

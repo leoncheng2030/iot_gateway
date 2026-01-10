@@ -56,17 +56,10 @@ public class IotRuleEditParam {
     @NotBlank(message = "ruleType不能为空")
     private String ruleType;
 
-    /** 触发条件 */
-    @ExcelProperty("触发条件")
-    @Schema(description = "触发条件", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "triggerCondition不能为空")
-    private String triggerCondition;
-
-    /** 执行动作 */
-    @ExcelProperty("执行动作")
-    @Schema(description = "执行动作", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "actions不能为空")
-    private String actions;
+    /** 工作流图数据 */
+    @ExcelProperty("工作流图数据")
+    @Schema(description = "工作流图数据")
+    private String workflowData;
 
     /** 状态 */
     @ExcelProperty("状态")
