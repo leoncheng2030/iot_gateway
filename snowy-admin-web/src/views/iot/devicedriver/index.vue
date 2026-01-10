@@ -36,9 +36,6 @@
 				</a-space>
 			</template>
 			<template #bodyCell="{ column, record }">
-				<template v-if="column.dataIndex === 'driverType'">
-					{{ $TOOL.dictTypeData('DEVICE_DRIVER_TYPE', record.driverType) }}
-				</template>
 				<template v-if="column.dataIndex === 'status'">
 					<a-space>
 						<a-badge v-if="record.runStatus" status="processing" text="运行中" />
@@ -80,6 +77,10 @@
 	import ImportModel from './importModel.vue'
 	import downloadUtil from '@/utils/downloadUtil'
 	import iotDeviceDriverApi from '@/api/iot/iotDeviceDriverApi'
+	
+	// 驱动类型映射（从注册中心动态加载）
+	const driverTypeMap = ref({})
+	
 	const tableRef = ref()
 	const importModelRef = ref()
 	const formRef = ref()
@@ -95,20 +96,9 @@
 			dataIndex: 'driverType',
 			width: 150,
 			customRender: ({ text }) => {
-				// 驱动类型映射
-				const typeMap = {
-					DTU_GATEWAY: 'DTU网关',
-					TCP_DIRECT: 'TCP直连',
-					UDP_DIRECT: 'UDP直连',
-					MODBUS_TCP: 'Modbus TCP',
-					MQTT: 'MQTT',
-					HTTP: 'HTTP',
-					LORA_GATEWAY: 'LoRa网关',
-					ZIGBEE_GATEWAY: 'Zigbee网关',
-					OPCUA: 'OPC UA',
-					CUSTOM: '自定义'
-				}
-				return typeMap[text] || text
+				// 从驱动注册中心动态获取驱动名称
+				const driverInfo = driverTypeMap.value[text]
+				return driverInfo ? driverInfo.label : text
 			}
 		},
 		{
@@ -170,6 +160,26 @@
 			}
 		}
 	}
+	
+	// 加载驱动类型映射
+	const loadDriverTypes = async () => {
+		try {
+			const types = await iotDeviceDriverApi.iotDeviceDriverTypes()
+			const map = {}
+			types.forEach(item => {
+				map[item.value] = item
+			})
+			driverTypeMap.value = map
+		} catch (e) {
+			console.error('加载驱动类型失败', e)
+		}
+	}
+	
+	// 页面加载时获取驱动类型
+	onMounted(() => {
+		loadDriverTypes()
+	})
+	
 	const loadData = (parameter) => {
 		return iotDeviceDriverApi.iotDeviceDriverPage(parameter).then(async (data) => {
 			// 获取每个驱动的运行状态

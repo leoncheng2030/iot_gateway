@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import vip.xiaonuo.iot.core.config.NettyThreadPoolConfig;
 import vip.xiaonuo.iot.core.protocol.ProtocolServer;
+import vip.xiaonuo.iot.core.protocol.annotation.Protocol;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
+@Protocol(type = "TCP", name = "TCP协议", description = "动态TCP协议服务器，支持自定义编解码")
 public class DynamicTcpServer implements ProtocolServer {
 
     private EventLoopGroup bossGroup;

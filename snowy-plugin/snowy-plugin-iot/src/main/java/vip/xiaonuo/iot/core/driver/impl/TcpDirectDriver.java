@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "TCP_DIRECT", name = "TCP直连驱动", description = "TCP直连设备驱动")
 public class TcpDirectDriver extends AbstractDeviceDriver {
 
     private EventLoopGroup workerGroup;

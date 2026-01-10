@@ -138,6 +138,17 @@
 	// 打开抽屉
 	const onOpen = async (record) => {
 		open.value = true
+		
+		// 加载驱动类型列表（从注册中心获取）
+		try {
+			const types = await iotDeviceDriverApi.iotDeviceDriverTypes()
+			driverTypeOptions.value = types || []
+			console.log('加载驱动类型列表:', driverTypeOptions.value)
+		} catch (e) {
+			console.error('加载驱动类型失败', e)
+			driverTypeOptions.value = []
+		}
+		
 		if (record) {
 			let recordData = cloneDeep(record)
 			formData.value = Object.assign({}, recordData)
@@ -157,7 +168,6 @@
 				}
 			}
 		}
-		driverTypeOptions.value = tool.dictList('DEVICE_DRIVER_TYPE')
 		statusOptions.value = tool.dictList('DRIVER_STATUS')
 	}
 
@@ -183,10 +193,12 @@
 	// 加载驱动配置模板
 	const loadConfigTemplate = async (driverType) => {
 		try {
-			const fields = await iotDeviceDriverApi.iotDeviceDriverConfigTemplate(driverType)
-			configFields.value = fields || []
+			const template = await iotDeviceDriverApi.iotDeviceDriverConfigTemplate(driverType)
+			// 后端返回 {driverFields: [], deviceFields: []}，驱动配置表单只使用驱动级字段
+			const fields = template.driverFields || []
+			configFields.value = fields
 
-			console.log('加载配置模板成功', driverType, fields)
+			console.log('加载配置模板成功', driverType, template)
 
 			// 初始化默认值
 			const defaultValues = {}

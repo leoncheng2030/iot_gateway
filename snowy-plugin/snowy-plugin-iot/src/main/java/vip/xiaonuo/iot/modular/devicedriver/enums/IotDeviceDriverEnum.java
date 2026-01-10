@@ -15,7 +15,7 @@ package vip.xiaonuo.iot.modular.devicedriver.enums;
 import lombok.Getter;
 
 /**
- * 设备驱动配置表枚举
+ * 设备驱动状态枚举（驱动类型已通过@Driver注解自动注册）
  *
  * @author jetox
  * @date  2025/12/13 09:45
@@ -23,18 +23,6 @@ import lombok.Getter;
 @Getter
 public enum IotDeviceDriverEnum {
 
-    /** 驱动类型 */
-    DTU_GATEWAY("DTU网关驱动", "DTU_GATEWAY"),
-    TCP_DIRECT("TCP直连驱动", "TCP_DIRECT"),
-    UDP_DIRECT("UDP直连驱动", "UDP_DIRECT"),
-    MODBUS_TCP("Modbus TCP驱动", "MODBUS_TCP"),
-    MQTT("MQTT驱动", "MQTT"),
-    HTTP("HTTP驱动", "HTTP"),
-    LORA_GATEWAY("LoRa网关驱动", "LORA_GATEWAY"),
-    ZIGBEE_GATEWAY("Zigbee网关驱动", "ZIGBEE_GATEWAY"),
-    OPCUA("OPC UA驱动", "OPCUA"),
-    CUSTOM("自定义驱动", "CUSTOM"),
-    
     /** 驱动状态 */
     RUNNING("运行中", "RUNNING"),
     STOPPED("已停止", "STOPPED"),

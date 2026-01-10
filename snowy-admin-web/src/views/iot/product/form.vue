@@ -71,6 +71,7 @@
 	import { cloneDeep } from 'lodash-es'
 	import { required } from '@/utils/formRules'
 	import iotProductApi from '@/api/iot/iotProductApi'
+	import iotProtocolApi from '@/api/iot/iotProtocolApi'
 	// 抽屉状态
 	const open = ref(false)
 	const emit = defineEmits({ successful: null })
@@ -91,7 +92,17 @@
 			formData.value = Object.assign({}, recordData)
 		}
 		productTypeOptions.value = tool.dictList('PRODUCT_TYPE')
-		protocolTypeOptions.value = tool.dictList('PROTOCOL_TYPE')
+		// 从后端动态获取协议类型选项
+		iotProtocolApi.iotProtocolTypes().then((data) => {
+			if (data && Array.isArray(data)) {
+				protocolTypeOptions.value = data.map((item) => ({
+					label: item.name,
+					value: item.type
+				}))
+			}
+		}).catch((err) => {
+			console.error('获取协议类型失败:', err)
+		})
 		dataFormatOptions.value = tool.dictList('DATA_FORMAT')
 		statusOptions.value = tool.dictList('COMMON_STATUS')
 	}

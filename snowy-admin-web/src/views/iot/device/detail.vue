@@ -58,12 +58,13 @@
 				<NorthboundPush :device-data="deviceData" />
 			</a-tab-pane>
 
-			<!-- Modbus寄存器映射 -->
-			<a-tab-pane v-if="isModbusDevice" key="modbusMapping" tab="寄存器映射">
+			<!-- 寄存器映射 (Modbus/S7等需要映射的协议) -->
+			<a-tab-pane v-if="isModbusDevice" key="registerMapping" tab="寄存器映射">
 				<RegisterMappingConfig
 					v-model:mapping-list="propertyList"
 					v-model:use-device-mapping="useDeviceLevelMapping"
 					:loading="mappingLoading"
+					:protocol-type="deviceData.protocolType"
 					show-mode-switch
 					@save="saveDeviceLevelMapping"
 					@delete="deleteDeviceLevelMapping"
@@ -125,9 +126,19 @@
 	const propertyList = ref([])
 	const useDeviceLevelMapping = ref(false) // 是否使用设备级配置
 
-	// 判断是否为Modbus设备（检查是否有寄存器映射配置）
+	// 判断是否需要寄存器映射（支持Modbus、S7等协议）
 	const isModbusDevice = computed(() => {
-		// 检查是否有寄存器映射配置（设备级或产品级）
+		// 检查协议类型或是否有寄存器映射配置
+		const protocolType = deviceData.value.protocolType
+		// S7设备使用TCP协议，也需要寄存器映射
+		const supportedProtocols = ['MODBUS_TCP', 'MODBUS_RTU', 'S7', 'TCP']
+		
+		// 如果是支持的协议类型，直接返回true
+		if (supportedProtocols.includes(protocolType)) {
+			return true
+		}
+		
+		// 否则检查是否有寄存器映射配置（设备级或产品级）
 		if (propertyList.value && propertyList.value.length > 0) {
 			// 至少有一个配置了寄存器地址的属性
 			return propertyList.value.some((item) => item.registerAddress != null)
@@ -260,7 +271,7 @@
 				// 合并设备级配置和物模型信息
 				propertyList.value = deviceMappings.map((item) => {
 					const thingModel = thingModelMap[item.identifier] || {}
-					return {
+					const result = {
 						id: item.thingModelId,
 						identifier: item.identifier,
 						name: thingModel.name || item.identifier,
@@ -273,6 +284,22 @@
 						deviceMappingId: item.id,
 						extJson: thingModel.extJson
 					}
+								
+					// 从extJson中恢复S7协议的额外字段
+					if (item.extJson) {
+						try {
+							const extData = typeof item.extJson === 'string' ? JSON.parse(item.extJson) : item.extJson
+							if (extData.area) result.area = extData.area
+							if (extData.dbNumber) result.dbNumber = extData.dbNumber
+							if (extData.dataTypePrefix) result.dataTypePrefix = extData.dataTypePrefix
+							if (extData.offset != null) result.offset = extData.offset
+							if (extData.bitIndex != null) result.bitIndex = extData.bitIndex
+						} catch (e) {
+							console.error('解析extJson失败', e)
+						}
+					}
+								
+					return result
 				})
 				return
 			}
@@ -314,27 +341,96 @@
 	}
 
 	// 切换映射模式
-	const onMappingModeChange = () => {
-		loadModbusMapping()
+	const onMappingModeChange = async (useDeviceLevel) => {
+		if (useDeviceLevel) {
+			// 切换到设备级：从产品级克隆配置
+			const properties = await iotThingModelApi.iotThingModelGetProperties({
+				productId: deviceData.value.productId,
+				modelType: ModelType.PROPERTY
+			})
+			
+			// 从extJson中读取寄存器地址作为初始值
+			propertyList.value = (properties || []).map((item) => {
+				let registerAddress = null
+				let functionCode = null
+				let dataType = null
+				
+				if (item.extJson) {
+					try {
+						const extJson = typeof item.extJson === 'string' ? JSON.parse(item.extJson) : item.extJson
+						registerAddress = extJson.registerAddress
+						functionCode = extJson.functionCode
+						dataType = extJson.dataType
+					} catch (e) {
+						console.error('解析extJson失败', e)
+					}
+				}
+				
+				return {
+					...item,
+					registerAddress,
+					functionCode,
+					dataType
+				}
+			})
+			
+			message.info('已切换到设备级配置，修改后请点击"保存设备级配置"')
+		} else {
+			// 切换到产品级：重新加载
+			loadModbusMapping()
+		}
 	}
 
 	// 保存设备级映射
 	const saveDeviceLevelMapping = async () => {
 		try {
+			const protocolType = deviceData.value.protocolType?.toUpperCase()
+			const isS7Protocol = protocolType === 'S7' || protocolType === 'TCP'
+			
 			// 构建设备级映射数据
 			const mappings = propertyList.value
-				.filter((item) => item.registerAddress != null)
-				.map((item) => ({
-					thingModelId: item.id,
-					identifier: item.identifier,
-					registerAddress: item.registerAddress,
-					functionCode: item.functionCode,
-					dataType: item.dataType,
-					enabled: true
-				}))
+				.filter((item) => {
+					// S7协议：检查 identifier 是否有效（不仅是属性标识符，应该是完整地址格式）
+					if (isS7Protocol) {
+						// S7地址格式：DB1.DBD0 或 MW100 等
+						return item.identifier && (item.identifier.includes('DB') || item.identifier.includes('M') || item.identifier.includes('I') || item.identifier.includes('Q'))
+					}
+					// Modbus协议：检查 registerAddress
+					return item.registerAddress != null
+				})
+				.map((item) => {
+					const mapping = {
+						thingModelId: item.id,
+						identifier: item.identifier,
+						registerAddress: item.registerAddress,
+						functionCode: item.functionCode,
+						dataType: item.dataType,
+						enabled: true
+					}
+					
+					// S7协议：将额外字段序列化到 extJson
+					if (isS7Protocol) {
+						const extData = {}
+						if (item.area) extData.area = item.area
+						if (item.dbNumber) extData.dbNumber = item.dbNumber
+						if (item.dataTypePrefix) extData.dataTypePrefix = item.dataTypePrefix
+						if (item.offset != null) extData.offset = item.offset
+						if (item.bitIndex != null) extData.bitIndex = item.bitIndex
+						
+						if (Object.keys(extData).length > 0) {
+							mapping.extJson = JSON.stringify(extData)
+						}
+					}
+					
+					return mapping
+				})
 
 			if (mappings.length === 0) {
-				message.warning('请至少配置一个寄存器映射')
+				if (isS7Protocol) {
+					message.warning('请至少配置一个寄存器映射，点击"构建"按钮配置S7地址')
+				} else {
+					message.warning('请至少配置一个寄存器映射')
+				}
 				return
 			}
 

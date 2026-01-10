@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import vip.xiaonuo.iot.core.config.NettyThreadPoolConfig;
 import vip.xiaonuo.iot.core.protocol.ProtocolServer;
+import vip.xiaonuo.iot.core.protocol.annotation.Protocol;
 import vip.xiaonuo.iot.core.websocket.WebSocketServerHandler;
 
 import java.util.Map;
@@ -39,6 +40,7 @@ import java.util.concurrent.TimeUnit;
  * @date 2025/12/11 10:40
  **/
 @Slf4j
+@Protocol(type = "WEBSOCKET", name = "WebSocket协议", description = "动态WebSocket协议服务器，支持双向通信")
 public class DynamicWebSocketServer implements ProtocolServer {
 
     private final WebSocketServerHandler webSocketServerHandler;

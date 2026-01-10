@@ -30,6 +30,7 @@ import vip.xiaonuo.iot.core.config.NettyThreadPoolConfig;
 import vip.xiaonuo.iot.core.mqtt.MqttServerHandler;
 import vip.xiaonuo.iot.core.mqtt.MqttWebSocketFrameHandler;
 import vip.xiaonuo.iot.core.protocol.ProtocolServer;
+import vip.xiaonuo.iot.core.protocol.annotation.Protocol;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +42,7 @@ import java.util.concurrent.TimeUnit;
  * @date 2025/12/11 10:40
  **/
 @Slf4j
+@Protocol(type = "MQTT", name = "MQTT协议", description = "动态MQTT协议服务器，支持MQTT 3.1/3.1.1/5.0")
 public class DynamicMqttServer implements ProtocolServer {
 
     private final MqttServerHandler mqttServerHandler;

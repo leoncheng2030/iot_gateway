@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
  * 用于UDP协议直接连接的设备
  */
 @Slf4j
+@Driver(type = "UDP_DIRECT", name = "UDP直连驱动", description = "UDP直连设备驱动")
 public class UdpDirectDriver extends AbstractDeviceDriver {
 
 	private EventLoopGroup group;

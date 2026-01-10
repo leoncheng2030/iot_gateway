@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "CUSTOM", name = "自定义驱动", description = "用户扩展自定义驱动")
 public class CustomDriver extends AbstractDeviceDriver {
 
 	/** 自定义协议处理器类名 */

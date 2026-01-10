@@ -31,6 +31,7 @@ import vip.xiaonuo.iot.modular.protocol.param.IotProtocolIdParam;
 import vip.xiaonuo.iot.modular.protocol.param.IotProtocolPageParam;
 import vip.xiaonuo.iot.modular.protocol.service.IotProtocolService;
 import vip.xiaonuo.iot.core.protocol.ProtocolManager;
+import vip.xiaonuo.iot.core.protocol.ProtocolServerFactory;
 
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -54,6 +55,9 @@ public class IotProtocolController {
 
     @Resource
     private ProtocolManager protocolManager;
+    
+    @Resource
+    private ProtocolServerFactory protocolServerFactory;
 
     /**
      * 获取协议配置分页
@@ -222,5 +226,18 @@ public class IotProtocolController {
     @GetMapping("/iot/protocol/status")
     public CommonResult<Boolean> status(@Valid IotProtocolIdParam iotProtocolIdParam) {
         return CommonResult.data(protocolManager.isRunning(iotProtocolIdParam.getId()));
+    }
+    
+    /**
+     * 获取所有已注册的协议类型列表
+     * 用于前端下拉选择
+     *
+     * @author jetox
+     * @date 2026/01/10
+     */
+    @Operation(summary = "获取协议类型列表")
+    @GetMapping("/iot/protocol/types")
+    public CommonResult<List<ProtocolServerFactory.ProtocolTypeDTO>> getProtocolTypes() {
+        return CommonResult.data(protocolServerFactory.getAllProtocolTypes());
     }
 }

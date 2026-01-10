@@ -41,9 +41,8 @@ public class IotDeviceDriverAddParam {
     @NotBlank(message = "driverType不能为空")
     private String driverType;
 
-    /** 驱动实现类 */
-    @Schema(description = "驱动实现类", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "driverClass不能为空")
+    /** 驱动实现类（由后端根据驱动类型自动填充，前端可不传） */
+    @Schema(description = "驱动实现类")
     private String driverClass;
 
     /** 驱动配置(JSON) */

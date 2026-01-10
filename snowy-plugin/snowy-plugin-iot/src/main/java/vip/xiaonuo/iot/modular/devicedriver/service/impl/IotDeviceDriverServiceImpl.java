@@ -107,19 +107,14 @@ public class IotDeviceDriverServiceImpl extends ServiceImpl<IotDeviceDriverMappe
      * 根据驱动类型获取实现类
      */
     private String getDriverClassByType(String driverType) {
-        return switch (driverType) {
-            case "DTU_GATEWAY" -> "vip.xiaonuo.iot.core.driver.impl.DtuGatewayDriver";
-            case "TCP_DIRECT" -> "vip.xiaonuo.iot.core.driver.impl.TcpDirectDriver";
-            case "UDP_DIRECT" -> "vip.xiaonuo.iot.core.driver.impl.UdpDirectDriver";
-            case "MODBUS_TCP" -> "vip.xiaonuo.iot.core.driver.impl.ModbusTcpDriver";
-            case "MQTT" -> "vip.xiaonuo.iot.core.driver.impl.MqttDriver";
-            case "HTTP" -> "vip.xiaonuo.iot.core.driver.impl.HttpDriver";
-            case "LORA_GATEWAY" -> "vip.xiaonuo.iot.core.driver.impl.LoraGatewayDriver";
-            case "ZIGBEE_GATEWAY" -> "vip.xiaonuo.iot.core.driver.impl.ZigbeeGatewayDriver";
-            case "OPCUA" -> "vip.xiaonuo.iot.core.driver.impl.OpcUaDriver";
-            case "CUSTOM" -> "vip.xiaonuo.iot.core.driver.impl.CustomDriver";
-            default -> throw new CommonException("不支持的驱动类型: {}", driverType);
-        };
+        // 从驱动注册中心获取（基于注解自动扫描）
+        String driverClass = vip.xiaonuo.iot.core.driver.DriverRegistry.getDriverClass(driverType);
+        if (driverClass != null) {
+            return driverClass;
+        }
+        
+        // 未找到驱动类
+        throw new CommonException("不支持的驱动类型: {}，请确保驱动类上已添加@Driver注解", driverType);
     }
 
     @Transactional(rollbackFor = Exception.class)

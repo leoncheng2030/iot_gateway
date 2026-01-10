@@ -132,24 +132,26 @@ public class DriverManager {
      * 根据驱动类型创建驱动实例
      */
     private DeviceDriver createDriver(String driverType, DriverConfig config) {
-        DeviceDriver driver = switch (driverType) {
-            case "DTU_GATEWAY" -> new DtuGatewayDriver(config);
-            case "TCP_DIRECT" -> new TcpDirectDriver(config);
-            case "UDP_DIRECT" -> new UdpDirectDriver(config);
-            case "MODBUS_TCP" -> new ModbusTcpDriver(config);
-            case "MQTT" -> new MqttDriver(config);
-            case "HTTP" -> new HttpDriver(config);
-            case "LORA_GATEWAY" -> new LoraGatewayDriver(config);
-            case "ZIGBEE_GATEWAY" -> new ZigbeeGatewayDriver(config);
-            case "OPCUA" -> new OpcUaDriver(config);
-            case "CUSTOM" -> new CustomDriver(config);
-            default -> throw new CommonException("不支持的驱动类型: {}", driverType);
-        };
+        // 从注册中心获取驱动类
+        String driverClass = vip.xiaonuo.iot.core.driver.DriverRegistry.getDriverClass(driverType);
+        if (driverClass == null) {
+            throw new CommonException("不支持的驱动类型: {}，请确保驱动类上已添加@Driver注解", driverType);
+        }
         
-        // 手动注入Spring依赖
-        autowireCapableBeanFactory.autowireBean(driver);
-        
-        return driver;
+        try {
+            // 通过反射创建驱动实例
+            Class<?> clazz = Class.forName(driverClass);
+            DeviceDriver driver = (DeviceDriver) clazz.getConstructor(DriverConfig.class).newInstance(config);
+            
+            // 手动注入Spring依赖
+            autowireCapableBeanFactory.autowireBean(driver);
+            
+            log.info("创建驱动实例: {} - {}", driverType, driverClass);
+            return driver;
+        } catch (Exception e) {
+            log.error("创建驱动实例失败: {}", driverType, e);
+            throw new CommonException("创建驱动实例失败: {}", e.getMessage());
+        }
     }
 
     /**

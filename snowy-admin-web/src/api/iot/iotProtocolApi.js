@@ -56,5 +56,13 @@ export default {
 	// 获取协议运行状态
 	iotProtocolStatus(data) {
 		return request('status', data, 'get')
+	},
+	// 获取所有已注册的协议类型列表
+	iotProtocolTypes() {
+		return request('types', {}, 'get')
+	},
+	// 获取协议地址配置模板
+	iotProtocolAddressTemplate(protocolType) {
+		return baseRequest(`/iot/protocol/address/template/${protocolType}`, {}, 'get')
 	}
 }

@@ -146,6 +146,7 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
         } else {
             queryWrapper.lambda().orderByAsc(IotDevice::getSortCode);
         }
+        
         return this.page(CommonPageRequest.defaultPage(), queryWrapper);
     }
 
@@ -153,6 +154,15 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
     @Override
     public String add(IotDeviceAddParam iotDeviceAddParam) {
         IotDevice iotDevice = BeanUtil.toBean(iotDeviceAddParam, IotDevice.class);
+        
+        // 自动填充产品协议类型
+        if (ObjectUtil.isNotEmpty(iotDevice.getProductId())) {
+            IotProduct product = iotProductService.getById(iotDevice.getProductId());
+            if (product != null) {
+                iotDevice.setProtocolType(product.getProtocolType());
+            }
+        }
+        
         this.save(iotDevice);
         return iotDevice.getId();
     }
@@ -161,7 +171,18 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
     @Override
     public void edit(IotDeviceEditParam iotDeviceEditParam) {
         IotDevice iotDevice = this.queryEntity(iotDeviceEditParam.getId());
+        
+        // 如果产品ID发生变化，同步更新协议类型
+        String oldProductId = iotDevice.getProductId();
         BeanUtil.copyProperties(iotDeviceEditParam, iotDevice);
+        
+        if (!ObjectUtil.equals(oldProductId, iotDevice.getProductId()) && ObjectUtil.isNotEmpty(iotDevice.getProductId())) {
+            IotProduct product = iotProductService.getById(iotDevice.getProductId());
+            if (product != null) {
+                iotDevice.setProtocolType(product.getProtocolType());
+            }
+        }
+        
         this.updateById(iotDevice);
     }
 

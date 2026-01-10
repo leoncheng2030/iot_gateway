@@ -1,86 +1,74 @@
 <template>
 	<div>
-		<!-- MQTT设备连接信息 -->
-		<template v-if="!isModbusDevice">
+		<!-- 动态协议连接信息 -->
+		<a-spin :spinning="driverLoading">
 			<a-descriptions bordered :column="1">
 				<a-descriptions-item label="协议类型">
-					<a-tag color="blue">MQTT</a-tag>
+					<a-tag :color="getProtocolColor(props.deviceData.protocolType)">
+						{{ getProtocolName(props.deviceData.protocolType) }}
+					</a-tag>
 				</a-descriptions-item>
-				<a-descriptions-item label="MQTT Broker地址">
-					<a-typography-text copyable>tcp://localhost:1883</a-typography-text>
-				</a-descriptions-item>
-				<a-descriptions-item label="Client ID">
-					<a-typography-text copyable>{{ deviceData.deviceKey }}</a-typography-text>
-				</a-descriptions-item>
-				<a-descriptions-item label="用户名">
-					<a-typography-text copyable>{{ deviceData.deviceKey }}</a-typography-text>
-				</a-descriptions-item>
-				<a-descriptions-item label="密码">
-					<a-typography-text copyable>{{ deviceData.deviceSecret }}</a-typography-text>
-				</a-descriptions-item>
-			</a-descriptions>
-
-			<a-divider orientation="left">Topic说明</a-divider>
-			<a-table :columns="topicColumns" :data-source="topicList" :pagination="false" size="small">
-				<template #bodyCell="{ column, record }">
-					<template v-if="column.dataIndex === 'topic'">
-						<a-typography-text copyable code>{{ record.topic }}</a-typography-text>
-					</template>
+				
+				<!-- 根据协议类型动态显示连接信息 -->
+				<template v-if="connectionFields.length > 0">
+					<a-descriptions-item v-for="field in connectionFields" :key="field.key" :label="field.label">
+						<a-typography-text v-if="field.copyable" copyable>{{ field.value }}</a-typography-text>
+						<a-tag v-else-if="field.tag" :color="field.tagColor || 'blue'">{{ field.value }}</a-tag>
+						<a-badge v-else-if="field.badge" :status="field.badgeStatus" :text="field.value" />
+						<span v-else>{{ field.value }}</span>
+					</a-descriptions-item>
 				</template>
-			</a-table>
-		</template>
-
-		<!-- Modbus TCP设备连接信息 -->
-		<template v-else>
-			<a-descriptions bordered :column="1">
-				<a-descriptions-item label="协议类型">
-					<a-tag color="green">Modbus TCP</a-tag>
-				</a-descriptions-item>
-				<a-descriptions-item label="设备IP地址">
-					<a-typography-text copyable>{{ modbusConfig.ip || '-' }}</a-typography-text>
-				</a-descriptions-item>
-				<a-descriptions-item label="通信端口">
-					<a-tag color="blue">{{ modbusConfig.port || 502 }}</a-tag>
-				</a-descriptions-item>
-				<a-descriptions-item label="Modbus从站地址">
-					<a-tag color="orange">{{ modbusConfig.slaveAddress || '-' }}</a-tag>
-				</a-descriptions-item>
-				<a-descriptions-item label="连接状态">
-					<a-badge
-						:status="deviceData.deviceStatus === 'ONLINE' ? 'success' : 'default'"
-						:text="deviceData.deviceStatus === 'ONLINE' ? '已连接' : '未连接'"
-					/>
-				</a-descriptions-item>
+				<template v-else>
+					<a-descriptions-item label="连接信息">
+						<a-empty description="该协议暂无连接信息" :image="Empty.PRESENTED_IMAGE_SIMPLE" />
+					</a-descriptions-item>
+				</template>
 			</a-descriptions>
 
-			<a-divider orientation="left">轮询配置</a-divider>
-			<a-alert
-				message="平台作为Modbus主站，定时主动轮询读取设备寄存器数据"
-				type="info"
-				show-icon
-				style="margin-bottom: 16px"
-			/>
-			<a-descriptions bordered :column="2" size="small">
-				<a-descriptions-item label="轮询间隔">每 5 秒</a-descriptions-item>
-				<a-descriptions-item label="超时时间">3 秒</a-descriptions-item>
-				<a-descriptions-item label="支持功能码" :span="2">
-					0x01(读线圈)、0x03(读保持寄存器)、0x05(写单个线圈)、0x06(写单个寄存器)、0x0F(写多个线圈)、0x10(写多个寄存器)
-				</a-descriptions-item>
-			</a-descriptions>
+			<!-- MQTT Topic说明 -->
+			<template v-if="isMqttProtocol">
+				<a-divider orientation="left">Topic说明</a-divider>
+				<a-table :columns="topicColumns" :data-source="topicList" :pagination="false" size="small">
+					<template #bodyCell="{ column, record }">
+						<template v-if="column.dataIndex === 'topic'">
+							<a-typography-text copyable code>{{ record.topic }}</a-typography-text>
+						</template>
+					</template>
+				</a-table>
+			</template>
 
-			<a-divider orientation="left">使用说明</a-divider>
-			<a-steps direction="vertical" size="small" :current="3">
-				<a-step title="配置物模型" description="在产品管理中定义设备的属性、事件和服务" />
-				<a-step title="配置寄存器映射" description="在'Modbus寄存器映射'Tab中配置寄存器地址与物模型属性的对应关系" />
-				<a-step title="启动轮询" description="配置完成后，平台将自动按配置的功能码和地址轮询读取设备数据" />
-				<a-step title="实时监控" description="在'实时数据'Tab中查看设备上报的最新数据" />
-			</a-steps>
-		</template>
+			<!-- Modbus轮询配置 -->
+			<template v-if="isModbusProtocol">
+				<a-divider orientation="left">轮询配置</a-divider>
+				<a-alert
+					message="平台作为Modbus主站，定时主动轮询读取设备寄存器数据"
+					type="info"
+					show-icon
+					style="margin-bottom: 16px"
+				/>
+				<a-descriptions bordered :column="2" size="small">
+					<a-descriptions-item label="轮询间隔">每 5 秒</a-descriptions-item>
+					<a-descriptions-item label="超时时间">3 秒</a-descriptions-item>
+					<a-descriptions-item label="支持功能码" :span="2">
+						0x01(读线圈)、0x03(读保持寄存器)、0x05(写单个线圈)、0x06(写单个寄存器)、0x0F(写多个线圈)、0x10(写多个寄存器)
+					</a-descriptions-item>
+				</a-descriptions>
+
+				<a-divider orientation="left">使用说明</a-divider>
+				<a-steps direction="vertical" size="small" :current="3">
+					<a-step title="配置物模型" description="在产品管理中定义设备的属性、事件和服务" />
+					<a-step title="配置寄存器映射" description="在'Modbus寄存器映射'Tab中配置寄存器地址与物模型属性的对应关系" />
+					<a-step title="启动轮询" description="配置完成后，平台将自动按配置的功能码和地址轮询读取设备数据" />
+					<a-step title="实时监控" description="在'实时数据'Tab中查看设备上报的最新数据" />
+				</a-steps>
+			</template>
+		</a-spin>
 	</div>
 </template>
 
 <script setup>
 	import { computed, ref, watch } from 'vue'
+	import { Empty } from 'ant-design-vue'
 	import iotDeviceDriverRelApi from '@/api/iot/iotDeviceDriverRelApi'
 	import iotDeviceDriverApi from '@/api/iot/iotDeviceDriverApi'
 
@@ -96,70 +84,110 @@
 	const deviceDriverConfig = ref(null)
 	const driverLoading = ref(false)
 
-	// Modbus配置（从deviceConfig解析）
-	const modbusConfig = computed(() => {
-		if (!deviceDriverConfig.value) {
-			return {}
-		}
+	// 协议类型显示名称映射
+	const protocolNameMap = {
+		S7: 'S7协议',
+		TCP: 'S7协议',
+		MODBUS_TCP: 'Modbus TCP',
+		MODBUS_RTU: 'Modbus RTU',
+		MQTT: 'MQTT',
+		HTTP: 'HTTP',
+		OPCUA: 'OPC UA'
+	}
+
+	// 协议类型颜色映射
+	const protocolColorMap = {
+		S7: 'purple',
+		TCP: 'purple',
+		MODBUS_TCP: 'green',
+		MODBUS_RTU: 'green',
+		MQTT: 'blue',
+		HTTP: 'orange',
+		OPCUA: 'cyan'
+	}
+
+	// 获取协议显示名称
+	const getProtocolName = (protocolType) => {
+		return protocolNameMap[protocolType] || protocolType || '未知协议'
+	}
+
+	// 获取协议颜色
+	const getProtocolColor = (protocolType) => {
+		return protocolColorMap[protocolType] || 'default'
+	}
+
+	// 解析配置（兼容JSON字符串和对象）
+	const parseConfig = (config) => {
+		if (!config) return {}
 		try {
-			return JSON.parse(deviceDriverConfig.value)
+			return typeof config === 'string' ? JSON.parse(config) : config
 		} catch (e) {
-			console.error('解析Modbus配置失败:', e)
+			console.error('解析配置失败:', e)
 			return {}
 		}
+	}
+
+	// 动态连接字段（根据协议类型生成）
+	const connectionFields = computed(() => {
+		const protocol = props.deviceData.protocolType?.toUpperCase()
+		const config = parseConfig(deviceDriverConfig.value)
+		const fields = []
+
+		// S7协议
+		if (protocol === 'S7' || protocol === 'TCP') {
+			fields.push(
+				{ key: 'host', label: 'PLC地址', value: config.host || props.deviceData.ipAddress || '-', copyable: true },
+				{ key: 'port', label: '端口', value: config.port || 102, tag: true, tagColor: 'blue' },
+				{ key: 'rack', label: '机架号(Rack)', value: config.rack ?? 0, tag: true, tagColor: 'orange' },
+				{ key: 'slot', label: '插槽号(Slot)', value: config.slot ?? 1, tag: true, tagColor: 'orange' },
+				{ key: 'plcType', label: 'PLC类型', value: config.plcType || 'S7-200', tag: true, tagColor: 'purple' },
+				{
+					key: 'status',
+					label: '连接状态',
+					value: props.deviceData.deviceStatus === 'ONLINE' ? '已连接' : '未连接',
+					badge: true,
+					badgeStatus: props.deviceData.deviceStatus === 'ONLINE' ? 'success' : 'default'
+				}
+			)
+		}
+		// Modbus TCP
+		else if (protocol === 'MODBUS_TCP') {
+			fields.push(
+				{ key: 'ip', label: '设备IP地址', value: config.ip || '-', copyable: true },
+				{ key: 'port', label: '通信端口', value: config.port || 502, tag: true, tagColor: 'blue' },
+				{ key: 'slaveAddress', label: 'Modbus从站地址', value: config.slaveAddress || '-', tag: true, tagColor: 'orange' },
+				{
+					key: 'status',
+					label: '连接状态',
+					value: props.deviceData.deviceStatus === 'ONLINE' ? '已连接' : '未连接',
+					badge: true,
+					badgeStatus: props.deviceData.deviceStatus === 'ONLINE' ? 'success' : 'default'
+				}
+			)
+		}
+		// MQTT
+		else if (protocol === 'MQTT') {
+			fields.push(
+				{ key: 'broker', label: 'MQTT Broker地址', value: 'tcp://localhost:1883', copyable: true },
+				{ key: 'clientId', label: 'Client ID', value: props.deviceData.deviceKey, copyable: true },
+				{ key: 'username', label: '用户名', value: props.deviceData.deviceKey, copyable: true },
+				{ key: 'password', label: '密码', value: props.deviceData.deviceSecret, copyable: true }
+			)
+		}
+
+		return fields
 	})
 
-	// 北向推送配置
-	const northboundLoading = ref(false)
-	const northboundConfigs = ref([])
+	// 判断是否为MQTT协议
+	const isMqttProtocol = computed(() => {
+		return props.deviceData.protocolType?.toUpperCase() === 'MQTT'
+	})
 
-	// 加载北向推送配置
-	const loadNorthboundConfigs = async () => {
-		if (!props.deviceData.id) return
-
-		northboundLoading.value = true
-		try {
-			// 查询设备关联的推送配置
-			const relRes = await iotNorthboundDeviceRelApi.iotNorthboundDeviceRelPage({
-				current: 1,
-				size: 1000,
-				deviceId: props.deviceData.id
-			})
-
-			if (relRes.records && relRes.records.length > 0) {
-				// 获取配置ID列表
-				const configIds = relRes.records.map((item) => item.configId)
-
-				// 查询配置详情
-				const configs = []
-				for (const configId of configIds) {
-					try {
-						const config = await iotNorthboundConfigApi.iotNorthboundConfigDetail({ id: configId })
-						configs.push(config)
-					} catch (e) {
-						console.error('加载配置失败:', e)
-					}
-				}
-				northboundConfigs.value = configs
-			} else {
-				northboundConfigs.value = []
-			}
-		} catch (error) {
-			console.error('加载北向推送配置失败:', error)
-			northboundConfigs.value = []
-		} finally {
-			northboundLoading.value = false
-		}
-	}
-
-	// 构建实际Topic
-	const buildActualTopic = (topicTemplate) => {
-		if (!topicTemplate) return ''
-		return topicTemplate
-			.replace('{productId}', props.deviceData.productId || 'PRODUCT_ID')
-			.replace('{deviceKey}', props.deviceData.deviceKey || 'DEVICE_KEY')
-			.replace('{deviceId}', props.deviceData.id || 'DEVICE_ID')
-	}
+	// 判断是否为Modbus协议
+	const isModbusProtocol = computed(() => {
+		const protocol = props.deviceData.protocolType?.toUpperCase()
+		return protocol === 'MODBUS_TCP' || protocol === 'MODBUS_RTU'
+	})
 
 	// Topic列表
 	const topicColumns = [
@@ -220,11 +248,6 @@
 			driverLoading.value = false
 		}
 	}
-
-	// 判断是否为Modbus设备
-	const isModbusDevice = computed(() => {
-		return deviceDriverType.value === 'MODBUS_TCP'
-	})
 
 	// 监听deviceData变化，加载驱动信息
 	watch(

@@ -31,6 +31,7 @@ import vip.xiaonuo.common.pojo.CommonResult;
 import vip.xiaonuo.iot.core.config.DriverConfigFactory;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.config.DriverConfigTemplate;
+import vip.xiaonuo.iot.core.driver.DriverRegistry;
 import vip.xiaonuo.iot.modular.devicedriver.entity.IotDeviceDriver;
 import vip.xiaonuo.iot.modular.devicedriver.param.IotDeviceDriverAddParam;
 import vip.xiaonuo.iot.modular.devicedriver.param.IotDeviceDriverEditParam;
@@ -41,6 +42,8 @@ import vip.xiaonuo.iot.modular.devicedriver.service.IotDeviceDriverService;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 设备驱动配置表控制器
@@ -224,6 +227,39 @@ public class IotDeviceDriverController {
     @GetMapping("/iot/devicedriver/status")
     public CommonResult<JSONObject> getDriverStatus(@RequestParam String id) {
         return CommonResult.data(iotDeviceDriverService.getDriverStatus(id));
+    }
+
+    /**
+     * 获取所有已注册的驱动类型
+     *
+     * @author jetox
+     * @date 2026/01/10
+     */
+    @Operation(summary = "获取所有已注册的驱动类型")
+    @GetMapping("/iot/devicedriver/types")
+    public CommonResult<List<JSONObject>> getDriverTypes() {
+        try {
+            log.info("获取所有已注册的驱动类型");
+            // 从驱动注册中心获取所有驱动信息
+            Map<String, DriverRegistry.DriverInfo> allDriverInfo = DriverRegistry.getAllDriverInfo();
+            
+            // 转换为前端需要的格式
+            List<JSONObject> driverTypes = allDriverInfo.values().stream()
+                .map(info -> {
+                    JSONObject json = new JSONObject();
+                    json.set("value", info.getType());
+                    json.set("label", info.getName());
+                    json.set("description", info.getDescription());
+                    return json;
+                })
+                .collect(Collectors.toList());
+            
+            log.info("共找到 {} 个已注册的驱动类型", driverTypes.size());
+            return CommonResult.data(driverTypes);
+        } catch (Exception e) {
+            log.error("获取驱动类型失败", e);
+            return CommonResult.data(new ArrayList<>());
+        }
     }
 
     /**

@@ -70,7 +70,7 @@
 			</template>
 			<template #bodyCell="{ column, record }">
 				<template v-if="column.dataIndex === 'protocolType'">
-					{{ $TOOL.dictTypeData('PROTOCOL_TYPE', record.protocolType) }}
+					{{ getProtocolTypeName(record.protocolType) }}
 				</template>
 				<template v-if="column.dataIndex === 'status'">
 					<a-space>
@@ -256,6 +256,27 @@
 			tableRef.value.clearRefreshSelected()
 		})
 	}
-	const protocolTypeOptions = tool.dictList('PROTOCOL_TYPE')
+	// 从后端动态获取协议类型选项
+	const protocolTypeOptions = ref([])
+	const protocolTypeMap = ref({})
+	iotProtocolApi.iotProtocolTypes().then((data) => {
+		if (data && Array.isArray(data)) {
+			protocolTypeOptions.value = data.map((item) => ({
+				label: item.name,
+				value: item.type
+			}))
+			// 创建类型映射对象，用于列表显示
+			protocolTypeMap.value = data.reduce((map, item) => {
+				map[item.type] = item.name
+				return map
+			}, {})
+		}
+	}).catch((err) => {
+		console.error('获取协议类型失败:', err)
+	})
+	// 获取协议类型显示名称
+	const getProtocolTypeName = (type) => {
+		return protocolTypeMap.value[type] || type || '-'
+	}
 	const statusOptions = tool.dictList('COMMON_STATUS')
 </script>

@@ -60,5 +60,9 @@ export default {
 	// 获取驱动配置模板
 	iotDeviceDriverConfigTemplate(driverType) {
 		return request('configTemplate', { driverType }, 'get')
+	},
+	// 获取所有已注册的驱动类型
+	iotDeviceDriverTypes() {
+		return request('types', {}, 'get')
 	}
 }

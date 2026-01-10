@@ -55,6 +55,14 @@ public class ProtocolManager {
      */
     @PostConstruct
     public void init() {
+        // 打印已注册的协议信息
+        log.info("========================================");
+        log.info("协议注册中心 - 已发现的协议:");
+        ProtocolRegistry.getAllProtocolInfo().forEach((type, info) -> {
+            log.info("  - 协议类型: {} | 名称: {} | 描述: {}", info.getType(), info.getName(), info.getDescription());
+        });
+        log.info("========================================");
+        
         // 检查是否开启自动启动
         if (!autoStart) {
             log.info(">>> 协议自动启动已禁用，跳过加载（可通过前端手动启动）");

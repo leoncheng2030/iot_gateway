@@ -92,7 +92,7 @@
 					{{ $TOOL.dictTypeData('PRODUCT_TYPE', record.productType) }}
 				</template>
 				<template v-if="column.dataIndex === 'protocolType'">
-					{{ $TOOL.dictTypeData('PROTOCOL_TYPE', record.protocolType) }}
+					{{ getProtocolTypeName(record.protocolType) }}
 				</template>
 				<template v-if="column.dataIndex === 'dataFormat'">
 					{{ $TOOL.dictTypeData('DATA_FORMAT', record.dataFormat) }}
@@ -127,6 +127,7 @@
 	import Detail from './detail.vue'
 	import downloadUtil from '@/utils/downloadUtil'
 	import iotProductApi from '@/api/iot/iotProductApi'
+	import iotProtocolApi from '@/api/iot/iotProtocolApi'
 	const searchFormState = ref({})
 	const searchFormRef = ref()
 	const tableRef = ref()
@@ -243,7 +244,28 @@
 		})
 	}
 	const productTypeOptions = tool.dictList('PRODUCT_TYPE')
-	const protocolTypeOptions = tool.dictList('PROTOCOL_TYPE')
+	// 从后端动态获取协议类型选项
+	const protocolTypeOptions = ref([])
+	const protocolTypeMap = ref({})
+	iotProtocolApi.iotProtocolTypes().then((data) => {
+		if (data && Array.isArray(data)) {
+			protocolTypeOptions.value = data.map((item) => ({
+				label: item.name,
+				value: item.type
+			}))
+			// 创建类型映射对象，用于列表显示
+			protocolTypeMap.value = data.reduce((map, item) => {
+				map[item.type] = item.name
+				return map
+			}, {})
+		}
+	}).catch((err) => {
+		console.error('获取协议类型失败:', err)
+	})
+	// 获取协议类型显示名称
+	const getProtocolTypeName = (type) => {
+		return protocolTypeMap.value[type] || type || '-'
+	}
 	const dataFormatOptions = tool.dictList('DATA_FORMAT')
 	const statusOptions = tool.dictList('COMMON_STATUS')
 </script>

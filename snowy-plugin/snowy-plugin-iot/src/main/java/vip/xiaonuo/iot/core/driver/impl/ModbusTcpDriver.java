@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 import vip.xiaonuo.iot.core.protocol.modbus.Modbus4jTcpClient;
 import vip.xiaonuo.iot.modular.device.entity.IotDevice;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
@@ -36,6 +37,7 @@ import java.util.List;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "MODBUS_TCP", name = "Modbus TCP驱动", description = "Modbus TCP协议驱动")
 public class ModbusTcpDriver extends AbstractDeviceDriver {
 
 	@Resource

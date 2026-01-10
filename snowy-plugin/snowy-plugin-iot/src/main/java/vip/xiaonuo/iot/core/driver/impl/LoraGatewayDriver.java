@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "LORA_GATEWAY", name = "LoRa网关驱动", description = "LoRa网关设备驱动")
 public class LoraGatewayDriver extends AbstractDeviceDriver {
 
 	private EventLoopGroup bossGroup;

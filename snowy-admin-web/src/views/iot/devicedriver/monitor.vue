@@ -57,7 +57,7 @@
 						<a-tag v-else-if="record.status === 'ERROR'" color="error">错误</a-tag>
 					</template>
 					<template v-if="column.dataIndex === 'driverType'">
-						{{ $TOOL.dictTypeData('DEVICE_DRIVER_TYPE', record.driverType) }}
+						<span>{{ getDriverTypeName(record.driverType) }}</span>
 					</template>
 					<template v-if="column.dataIndex === 'uptime'">
 						<span v-if="record.status === 'RUNNING' && record.uptime">
@@ -146,6 +146,9 @@
 	import { message } from 'ant-design-vue'
 	import iotDeviceDriverApi from '@/api/iot/iotDeviceDriverApi'
 	import iotDriverLogApi from '@/api/iot/iotDriverLogApi'
+
+	// 驱动类型映射（从注册中心动态加载）
+	const driverTypeMap = ref({})
 
 	const loading = ref(false)
 	const driverList = ref([])
@@ -250,6 +253,12 @@
 		return colorMap[logType] || 'blue'
 	}
 
+	// 获取驱动类型名称
+	const getDriverTypeName = (type) => {
+		const driverInfo = driverTypeMap.value[type]
+		return driverInfo ? driverInfo.label : type
+	}
+
 	// 格式化日期时间
 	const formatDateTime = (dateTime) => {
 		if (!dateTime) return '-'
@@ -351,6 +360,33 @@
 	// 自动刷新
 	let refreshTimer = null
 	onMounted(() => {
+		loadDriverList()
+		loadRecentLogs()
+
+		// 每30秒自动刷新
+		refreshTimer = setInterval(() => {
+			loadDriverList()
+			loadRecentLogs()
+		}, 30000)
+	})
+
+	// 加载驱动类型映射
+	const loadDriverTypes = async () => {
+		try {
+			const types = await iotDeviceDriverApi.iotDeviceDriverTypes()
+			const map = {}
+			types.forEach(item => {
+				map[item.value] = item
+			})
+			driverTypeMap.value = map
+		} catch (e) {
+			console.error('加载驱动类型失败', e)
+		}
+	}
+
+	// 页面初始化时加载驱动类型
+	onMounted(async () => {
+		await loadDriverTypes()
 		loadDriverList()
 		loadRecentLogs()
 

@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "HTTP", name = "HTTP驱动", description = "HTTP协议驱动")
 public class HttpDriver extends AbstractDeviceDriver {
 
 	/** 基础URL */

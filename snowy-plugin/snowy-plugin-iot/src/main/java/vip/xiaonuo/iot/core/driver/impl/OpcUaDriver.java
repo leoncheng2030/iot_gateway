@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import vip.xiaonuo.iot.core.config.DriverConfigField;
 import vip.xiaonuo.iot.core.driver.AbstractDeviceDriver;
 import vip.xiaonuo.iot.core.driver.DriverConfig;
+import vip.xiaonuo.iot.core.driver.annotation.Driver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit;
  * @date 2025/12/13
  */
 @Slf4j
+@Driver(type = "OPCUA", name = "OPC UA驱动", description = "OPC UA协议驱动")
 public class OpcUaDriver extends AbstractDeviceDriver {
 
 	private String serverUrl;

@@ -39,30 +39,63 @@
 			size="middle"
 		>
 			<template #bodyCell="{ column, record }">
-				<template v-if="column.dataIndex === 'registerAddress'">
-					<a-input-number
-						v-model:value="record.registerAddress"
-						:min="0"
-						:max="65535"
-						style="width: 90px"
-						placeholder="地址"
-					/>
+				<!-- 地址列：根据协议模板动态渲染 -->
+				<template v-if="column.dataIndex === 'address'">
+					<!-- BUILDER 模式：显示文本输入 + 构建按钮 -->
+					<template v-if="addressTemplate?.inputMode === 'BUILDER'">
+						<a-input
+							v-model:value="record.identifier"
+							style="width: 180px"
+							:placeholder="addressTemplate.formatDescription || '地址'"
+						>
+							<template #addonAfter>
+								<a @click="openAddressBuilder(record)">构建</a>
+							</template>
+						</a-input>
+					</template>
+					<!-- SIMPLE 模式：显示数字输入 -->
+					<template v-else>
+						<a-input-number
+							v-model:value="record.registerAddress"
+							:min="0"
+							:max="65535"
+							style="width: 100px"
+							placeholder="地址"
+						/>
+					</template>
 				</template>
-				<template v-if="column.dataIndex === 'functionCode'">
-					<a-select
-						v-model:value="record.functionCode"
-						style="width: 170px"
-						:options="functionCodeOptions"
-						placeholder="选择功能码"
-					/>
-				</template>
-				<template v-if="column.dataIndex === 'dataType'">
-					<a-select
-						v-model:value="record.dataType"
-						style="width: 150px"
-						:options="dataTypeOptions"
-						placeholder="数据类型"
-					/>
+				
+				<!-- 动态渲染其他字段（根据模板定义） -->
+				<template v-for="field in addressTemplate?.fields || []" :key="field.name">
+					<template v-if="column.dataIndex === field.name">
+						<!-- SELECT 类型 -->
+						<template v-if="field.type === 'SELECT'">
+							<a-select
+								v-model:value="record[field.name]"
+								style="width: 170px"
+								:options="formatFieldOptions(field.options)"
+								:placeholder="field.label"
+							/>
+						</template>
+						<!-- NUMBER 类型 -->
+						<template v-else-if="field.type === 'NUMBER'">
+							<a-input-number
+								v-model:value="record[field.name]"
+								:min="field.min"
+								:max="field.max"
+								style="width: 100px"
+								:placeholder="field.label"
+							/>
+						</template>
+						<!-- TEXT 类型 -->
+						<template v-else>
+							<a-input
+								v-model:value="record[field.name]"
+								style="width: 150px"
+								:placeholder="field.label"
+							/>
+						</template>
+					</template>
 				</template>
 				<template v-if="column.dataIndex === 'enabled'">
 					<a-switch v-model:checked="record.enabled" />
@@ -72,6 +105,77 @@
 				</template>
 			</template>
 		</a-table>
+
+		<!-- 通用地址构建器弹窗 -->
+		<a-modal
+			v-model:open="addressBuilderVisible"
+			:title="addressTemplate?.templateName || '地址配置'"
+			width="550px"
+			@ok="saveAddress"
+			@cancel="addressBuilderVisible = false"
+		>
+			<a-alert
+				:message="addressTemplate?.templateName"
+				:description="addressTemplate?.formatDescription"
+				type="info"
+				show-icon
+				style="margin-bottom: 16px"
+			/>
+
+			<!-- 动态表单字段 -->
+			<a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+				<template v-for="field in addressTemplate?.fields" :key="field.name">
+					<a-form-item v-if="shouldShowField(field)" :label="field.label">
+						<!-- SELECT 类型 -->
+						<a-select
+							v-if="field.type === 'SELECT'"
+							v-model:value="builderFormData[field.name]"
+							:options="formatFieldOptions(field.options)"
+							style="width: 100%"
+						/>
+						<!-- NUMBER 类型 -->
+						<a-input-number
+							v-else-if="field.type === 'NUMBER'"
+							v-model:value="builderFormData[field.name]"
+							:min="field.min"
+							:max="field.max"
+							style="width: 100%"
+						/>
+						<!-- TEXT 类型 -->
+						<a-input
+							v-else
+							v-model:value="builderFormData[field.name]"
+							style="width: 100%"
+						/>
+						<a-typography-text v-if="field.description" type="secondary">
+							{{ field.description }}
+						</a-typography-text>
+					</a-form-item>
+				</template>
+
+				<!-- 地址预览 -->
+				<a-form-item v-if="addressTemplate?.inputMode === 'BUILDER'" label="生成地址">
+					<a-input :value="addressPreview" readonly>
+						<template #prefix>
+							<span style="color: #1890ff">🔍</span>
+						</template>
+					</a-input>
+					<a-typography-text type="success" style="font-weight: bold">
+						✓ 该地址将被保存
+					</a-typography-text>
+				</a-form-item>
+			</a-form>
+
+			<!-- 地址示例 -->
+			<a-divider v-if="addressTemplate?.examples?.length" orientation="left" style="margin-top: 16px">
+				常用地址示例
+			</a-divider>
+			<a-space v-if="addressTemplate?.examples?.length" direction="vertical" style="width: 100%">
+				<a-typography-text v-for="(example, index) in addressTemplate.examples" :key="index">
+					{{ example }}
+				</a-typography-text>
+			</a-space>
+		</a-modal>
 
 		<!-- 高级配置弹窗 -->
 		<a-modal
@@ -149,8 +253,10 @@
 </template>
 
 <script setup name="RegisterMappingConfig">
-	import { ref, computed, watch } from 'vue'
+	import { ref, computed, watch, onMounted } from 'vue'
 	import { SaveOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+	import { message } from 'ant-design-vue'
+	import iotProtocolApi from '@/api/iot/iotProtocolApi'
 
 	const props = defineProps({
 		// 映射列表数据
@@ -182,10 +288,60 @@
 		useDeviceMapping: {
 			type: Boolean,
 			default: false
+		},
+		// 协议类型（用于动态适配界面）
+		protocolType: {
+			type: String,
+			default: 'MODBUS_TCP'
 		}
 	})
 
 	const emit = defineEmits(['save', 'refresh', 'delete', 'modeChange', 'update:mappingList', 'update:useDeviceMapping'])
+
+	// ========== 协议配置模板相关 ==========
+	const addressTemplate = ref(null) // 地址配置模板
+	const templateLoading = ref(false)
+
+	// 加载协议地址配置模板
+	const loadAddressTemplate = async () => {
+		if (!props.protocolType) {
+			console.warn('协议类型为空，跳过加载配置模板')
+			return
+		}
+
+		templateLoading.value = true
+		try {
+			const response = await iotProtocolApi.iotProtocolAddressTemplate(props.protocolType)
+			console.log('API响应:', response)
+			
+			// 检查响应格式，处理 CommonResult 包装
+			if (response && response.data) {
+				addressTemplate.value = response.data
+			} else if (response) {
+				// 直接返回数据（无包装）
+				addressTemplate.value = response
+			}
+			
+			console.log(`加载协议配置模板成功: ${props.protocolType}`, addressTemplate.value)
+		} catch (error) {
+			console.error('加载地址配置模板失败:', error)
+			console.error('错误详情:', error.response || error.message)
+			message.warning(`协议 ${props.protocolType} 不支持地址配置或加载失败`)
+		} finally {
+			templateLoading.value = false
+		}
+	}
+
+	// 监听协议类型变化，重新加载模板
+	watch(
+		() => props.protocolType,
+		(newType) => {
+			if (newType) {
+				loadAddressTemplate()
+			}
+		},
+		{ immediate: true }
+	)
 
 	// 设备级/产品级模式切换
 	const useMappingModeLocal = ref(props.useDeviceMapping)
@@ -228,15 +384,119 @@
 	const advancedConfigVisible = ref(false)
 	const currentConfigItem = ref({})
 
-	// 表格列定义
-	const columns = [
-		{ title: '属性名称', dataIndex: 'name', width: 180 },
-		{ title: '寄存器地址', dataIndex: 'registerAddress', width: 100 },
-		{ title: '功能码', dataIndex: 'functionCode', width: 200 },
-		{ title: '数据类型', dataIndex: 'dataType', width: 150 },
-		{ title: '启用', dataIndex: 'enabled', width: 80, align: 'center' },
-		{ title: '操作', dataIndex: 'action', width: 90, align: 'center' }
-	]
+	// 判断是否为S7协议
+	const isS7Protocol = computed(() => {
+		const protocol = props.protocolType?.toUpperCase()
+		return protocol === 'S7' || protocol === 'TCP'
+	})
+
+	// 动态表格列定义（根据模板生成）
+	const columns = computed(() => {
+		const baseColumns = [
+			{ title: '属性名称', dataIndex: 'name', width: 180 },
+			{ title: '地址', dataIndex: 'address', width: 200 }
+		]
+
+		// 根据模板添加配置字段列
+		if (addressTemplate.value?.fields) {
+			addressTemplate.value.fields.forEach(field => {
+				// 跳过在地址列中已处理的字段
+				if (field.name !== 'registerAddress') {
+					baseColumns.push({
+						title: field.label,
+						dataIndex: field.name,
+						width: 180
+					})
+				}
+			})
+		}
+
+		baseColumns.push(
+			{ title: '启用', dataIndex: 'enabled', width: 80, align: 'center' },
+			{ title: '操作', dataIndex: 'action', width: 90, align: 'center' }
+		)
+
+		return baseColumns
+	})
+
+	// 格式化字段选项（适配 Ant Design Vue 的 Select 组件）
+	const formatFieldOptions = (options) => {
+		if (!options) return []
+		return options.map(opt => ({
+			label: opt.label,
+			value: opt.value
+		}))
+	}
+
+	// ========== 通用地址构建器 ==========
+	const addressBuilderVisible = ref(false)
+	const currentRecord = ref({})
+	const builderFormData = ref({})
+
+	// 打开地址构建器
+	const openAddressBuilder = (record) => {
+		currentRecord.value = record
+		
+		// 初始化表单数据（使用默认值）
+		builderFormData.value = {}
+		addressTemplate.value?.fields?.forEach(field => {
+			builderFormData.value[field.name] = record[field.name] || field.defaultValue
+		})
+		
+		addressBuilderVisible.value = true
+	}
+
+	// 判断字段是否应该显示（根据 showWhen 条件）
+	const shouldShowField = (field) => {
+		if (!field.showWhen) return true
+		
+		// 解析 showWhen 条件（如 "area=DB"）
+		const [fieldName, expectedValue] = field.showWhen.split('=')
+		return builderFormData.value[fieldName] === expectedValue
+	}
+
+	// 生成地址预览
+	const addressPreview = computed(() => {
+		// 根据不同协议生成地址
+		const protocolType = props.protocolType?.toUpperCase()
+		
+		if (protocolType === 'S7' || protocolType === 'TCP') {
+			// S7 地址格式
+			const { area, dbNumber, dataTypePrefix, offset, bitIndex } = builderFormData.value
+			let address = ''
+			
+			if (area === 'DB') {
+				address = `DB${dbNumber || 1}.DB${dataTypePrefix || 'W'}${offset || 0}`
+			} else {
+				address = `${area || 'M'}${dataTypePrefix || 'W'}${offset || 0}`
+			}
+			
+			if (dataTypePrefix === 'X' && bitIndex != null) {
+				address += `.${bitIndex}`
+			}
+			
+			return address
+		}
+		
+		// 其他协议默认返回空
+		return '地址预览'
+	})
+
+	// 保存地址
+	const saveAddress = () => {
+		// 更新当前记录的字段值
+		Object.keys(builderFormData.value).forEach(key => {
+			currentRecord.value[key] = builderFormData.value[key]
+		})
+		
+		// 更新 identifier 字段（用于 BUILDER 模式）
+		if (addressTemplate.value?.inputMode === 'BUILDER') {
+			currentRecord.value.identifier = addressPreview.value
+		}
+		
+		addressBuilderVisible.value = false
+		message.success('地址配置已更新')
+	}
 
 	// Modbus功能码选项
 	const functionCodeOptions = [

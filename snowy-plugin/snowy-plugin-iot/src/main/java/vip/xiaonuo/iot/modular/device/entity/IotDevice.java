@@ -99,4 +99,8 @@ public class IotDevice extends CommonEntity {
     /** 扩展信息 */
     @Schema(description = "扩展信息")
     private String extJson;
+    
+    /** 产品协议类型（冗余字段，用于优化查询性能） */
+    @Schema(description = "产品协议类型")
+    private String protocolType;
 }
