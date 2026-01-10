@@ -310,7 +310,10 @@ public class DevSseCacheUtil {
      * @date 2023/7/3
      **/
     public static void sendMessageToAllClient(String msg) {
+        log.info("sendMessageToAllClient被调用 - 当前SSE连接数: {}, 消息: {}", sseCache.size(), msg);
+        
         if (!existSseCache()) {
+            log.warn("sendMessageToAllClient - 没有SSE连接，无法发送消息");
             return;
         }
         // 判断发送的消息是否为空
@@ -319,11 +322,24 @@ public class DevSseCacheUtil {
             return;
         }
         CommonResult<String> message = new CommonResult<>(CommonResult.CODE_SUCCESS, "", msg);
+        
+        int successCount = 0;
+        int failCount = 0;
+        
         for (Map.Entry<String, Map<String, Object>> entry : sseCache.entrySet()) {
             String clientId = entry.getKey();
-            sendMessageToClientByClientId(clientId, message);
-            updateLastActiveTime(clientId);
+            try {
+                sendMessageToClientByClientId(clientId, message);
+                updateLastActiveTime(clientId);
+                successCount++;
+                log.info("发送SSE消息成功 - ClientId: {}", clientId);
+            } catch (Exception e) {
+                failCount++;
+                log.error("发送SSE消息失败 - ClientId: {}", clientId, e);
+            }
         }
+        
+        log.info("SSE消息群发完成 - 成功: {}, 失败: {}, 总数: {}", successCount, failCount, sseCache.size());
     }
 
     /**

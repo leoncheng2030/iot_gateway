@@ -128,6 +128,9 @@ public class S7Driver extends AbstractDeviceDriver {
 					.orderByAsc(IotDeviceRegisterMapping::getSortCode);
 		List<IotDeviceRegisterMapping> registerMappings = registerMappingService.list(mappingQuery);
 		
+		log.info("S7设备加载点位映射 - DeviceId: {}, DeviceKey: {}, 点位数量: {}", 
+			device.getId(), device.getDeviceKey(), registerMappings.size());
+		
 		// 添加到S7协议服务
 		s7ProtocolServer.addDevice(device, driverRel, registerMappings);
 	}

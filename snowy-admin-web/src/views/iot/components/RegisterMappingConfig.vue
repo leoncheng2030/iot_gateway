@@ -39,14 +39,20 @@
 			size="middle"
 		>
 			<template #bodyCell="{ column, record }">
+				<!-- 属性标识符列：只读显示 -->
+				<template v-if="column.dataIndex === 'identifier'">
+					<a-tag color="blue">{{ record.identifier }}</a-tag>
+				</template>
+				
 				<!-- 地址列：根据协议模板动态渲染 -->
 				<template v-if="column.dataIndex === 'address'">
 					<!-- BUILDER 模式：显示文本输入 + 构建按钮 -->
 					<template v-if="addressTemplate?.inputMode === 'BUILDER'">
 						<a-input
-							v-model:value="record.identifier"
+							v-model:value="record.displayAddress"
 							style="width: 180px"
 							:placeholder="addressTemplate.formatDescription || '地址'"
+							readonly
 						>
 							<template #addonAfter>
 								<a @click="openAddressBuilder(record)">构建</a>
@@ -194,6 +200,17 @@
 			</a-descriptions>
 
 			<a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+				<!-- 数据类型选择 -->
+				<a-form-item label="数据类型">
+					<a-select
+						v-model:value="currentConfigItem.dataType"
+						style="width: 100%"
+						:options="dataTypeOptions"
+						placeholder="选择数据类型"
+					/>
+					<a-typography-text type="secondary">选择点位的数据类型 (int/float/bool)</a-typography-text>
+				</a-form-item>
+
 				<!-- 布尔类型配置 -->
 				<template v-if="currentConfigItem.dataType === 'bool'">
 					<a-form-item label="位索引">
@@ -394,6 +411,7 @@
 	const columns = computed(() => {
 		const baseColumns = [
 			{ title: '属性名称', dataIndex: 'name', width: 180 },
+			{ title: '属性标识符', dataIndex: 'identifier', width: 150 },
 			{ title: '地址', dataIndex: 'address', width: 200 }
 		]
 
@@ -490,8 +508,15 @@
 		})
 		
 		// 更新 identifier 字段（用于 BUILDER 模式）
+		// 注意：这里仅用于显示，不应覆盖物模型属性标识符
 		if (addressTemplate.value?.inputMode === 'BUILDER') {
-			currentRecord.value.identifier = addressPreview.value
+			// 如果当前记录没有 originalIdentifier，先保存原始标识符
+			if (!currentRecord.value.originalIdentifier) {
+				currentRecord.value.originalIdentifier = currentRecord.value.identifier
+			}
+			// 将构建的地址保存为显示用的标识符
+			// 但在保存时会恢复 originalIdentifier
+			currentRecord.value.displayAddress = addressPreview.value
 		}
 		
 		addressBuilderVisible.value = false

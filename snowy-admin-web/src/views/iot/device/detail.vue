@@ -273,7 +273,8 @@
 					const thingModel = thingModelMap[item.identifier] || {}
 					const result = {
 						id: item.thingModelId,
-						identifier: item.identifier,
+						identifier: item.identifier,  // 物模型属性标识符
+						originalIdentifier: item.identifier,  // 保存原始标识符
 						name: thingModel.name || item.identifier,
 						valueType: thingModel.valueType,
 						accessMode: thingModel.accessMode,
@@ -284,11 +285,13 @@
 						deviceMappingId: item.id,
 						extJson: thingModel.extJson
 					}
-								
+												
 					// 从extJson中恢复S7协议的额外字段
 					if (item.extJson) {
 						try {
 							const extData = typeof item.extJson === 'string' ? JSON.parse(item.extJson) : item.extJson
+							// 恢复构建的地址
+							if (extData.address) result.displayAddress = extData.address
 							if (extData.area) result.area = extData.area
 							if (extData.dbNumber) result.dbNumber = extData.dbNumber
 							if (extData.dataTypePrefix) result.dataTypePrefix = extData.dataTypePrefix
@@ -298,7 +301,7 @@
 							console.error('解析extJson失败', e)
 						}
 					}
-								
+												
 					return result
 				})
 				return
@@ -390,10 +393,10 @@
 			// 构建设备级映射数据
 			const mappings = propertyList.value
 				.filter((item) => {
-					// S7协议：检查 identifier 是否有效（不仅是属性标识符，应该是完整地址格式）
+					// S7协议：检查 displayAddress 是否有效
 					if (isS7Protocol) {
 						// S7地址格式：DB1.DBD0 或 MW100 等
-						return item.identifier && (item.identifier.includes('DB') || item.identifier.includes('M') || item.identifier.includes('I') || item.identifier.includes('Q'))
+						return item.displayAddress && (item.displayAddress.includes('DB') || item.displayAddress.includes('M') || item.displayAddress.includes('I') || item.displayAddress.includes('Q'))
 					}
 					// Modbus协议：检查 registerAddress
 					return item.registerAddress != null
@@ -401,7 +404,8 @@
 				.map((item) => {
 					const mapping = {
 						thingModelId: item.id,
-						identifier: item.identifier,
+						// 使用原始标识符（物模型属性标识符），而不是构建的地址
+						identifier: item.originalIdentifier || item.identifier,
 						registerAddress: item.registerAddress,
 						functionCode: item.functionCode,
 						dataType: item.dataType,
@@ -411,6 +415,8 @@
 					// S7协议：将额外字段序列化到 extJson
 					if (isS7Protocol) {
 						const extData = {}
+						// 保存构建的地址到 extJson
+						if (item.displayAddress) extData.address = item.displayAddress
 						if (item.area) extData.area = item.area
 						if (item.dbNumber) extData.dbNumber = item.dbNumber
 						if (item.dataTypePrefix) extData.dataTypePrefix = item.dataTypePrefix
@@ -464,10 +470,22 @@
 	// 注册SSE消息处理器
 	const registerSSEHandler = () => {
 		sseMessageHandler.value = (message) => {
-			if (!open.value || !deviceData.value.id) return
+			console.log('🔵 收到SSE消息:', message)
+			console.log('🔵 当前设备详情页是否打开:', open.value)
+			console.log('🔵 当前设备ID:', deviceData.value.id)
+			
+			if (!open.value || !deviceData.value.id) {
+				console.warn('⚠️ 设备详情页未打开或设备ID不存在，忽略消息')
+				return
+			}
 
 			// 只处理当前设备的消息
-			if (message.deviceId !== deviceData.value.id) return
+			if (message.deviceId !== deviceData.value.id) {
+				console.warn('⚠️ 消息deviceId不匹配 - 消息ID:', message.deviceId, ', 当前ID:', deviceData.value.id)
+				return
+			}
+			
+			console.log('✅ 消息deviceId匹配，开始处理')
 
 			const now = new Date().toLocaleTimeString('zh-CN', {
 				hour12: false,
@@ -479,6 +497,7 @@
 
 			switch (message.type) {
 				case SSEMessageType.DEVICE_STATUS:
+					console.log('📊 处理设备状态消息')
 					// 设备状态变化，更新基本信息
 					if (message.status) {
 						deviceData.value.deviceStatus = message.status
@@ -501,6 +520,7 @@
 					}
 					break
 				case SSEMessageType.DEVICE_DATA:
+					console.log('📈 处理设备数据消息')
 					// 设备数据上报,刷新实时趋势图表
 					// 如果当前在实时趋势Tab,追加数据到图表
 					if (activeTab.value === 'deviceData' && message.data) {
@@ -517,13 +537,16 @@
 							}
 						})
 						realTimeDataMap.value = newDataMap
+						console.log('✅ 实时数据已更新:', realTimeDataMap.value)
 					}
 					break
 				case SSEMessageType.DEVICE_SHADOW:
+					console.log('🌑 处理设备影子消息 - reported:', message.reported)
 					// 设备影子变化,直接使用SSE消息更新实时数据
 					if (message.reported) {
 						try {
 							const reportedData = JSON.parse(message.reported)
+							console.log('🌑 解析后的影子数据:', reportedData)
 							// 使用Vue 3的响应式API强制触发更新
 							const newDataMap = { ...realTimeDataMap.value }
 							Object.keys(reportedData).forEach((key) => {
@@ -533,12 +556,14 @@
 								}
 							})
 							realTimeDataMap.value = newDataMap
+							console.log('✅ 设备影子数据已更新到realTimeDataMap:', realTimeDataMap.value)
 						} catch (e) {
 							console.error('❌ 解析设备影子数据失败:', e)
 						}
 					}
 					break
 				case SSEMessageType.DEVICE_EVENT:
+					console.log('📢 处理设备事件消息')
 					// 设备事件上报
 					// 添加到事件列表（最多保存50条）
 					if (message.eventType) {
@@ -564,12 +589,14 @@
 						if (recentEvents.value.length > 50) {
 							recentEvents.value = recentEvents.value.slice(0, 50)
 						}
+						console.log('✅ 设备事件已添加')
 					}
 					break
 			}
 		}
 		// 存储到全局,供父组件调用
 		window.__deviceDetailSSEHandler__ = sseMessageHandler.value
+		console.log('✅ SSE消息处理器已注册')
 	}
 
 	// 注销SSE消息处理器

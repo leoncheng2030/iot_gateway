@@ -219,19 +219,36 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
      */
     private void collectData(IotDevice device, List<IotDeviceRegisterMapping> registerMappings) {
         String deviceId = device.getId();
+        
+        // 调试日志：记录采集任务执行
+        log.info("S7开始采集数据 - DeviceKey: {}, 点位数量: {}", device.getDeviceKey(), registerMappings.size());
+        
+        // 如果没有配置点位，直接返回
+        if (registerMappings == null || registerMappings.isEmpty()) {
+            log.warn("S7设备未配置点位映射，跳过采集 - DeviceKey: {}", device.getDeviceKey());
+            return;
+        }
+        
         try {
             JSONObject data = JSONUtil.createObj();
 
             // 遍历寄存器映射，读取数据
             for (IotDeviceRegisterMapping mapping : registerMappings) {
+                log.info("S7读取点位 - DeviceKey: {}, Identifier: {}, Address: {}, DataType: {}", 
+                    device.getDeviceKey(), mapping.getIdentifier(), mapping.getRegisterAddress(), mapping.getDataType());
                 try {
                     Object value = readRegister(deviceId, mapping);
                     if (value != null) {
                         data.set(mapping.getIdentifier(), value);
+                        log.info("S7读取成功 - DeviceKey: {}, Identifier: {}, Value: {}", 
+                            device.getDeviceKey(), mapping.getIdentifier(), value);
+                    } else {
+                        log.warn("S7读取返回null - DeviceKey: {}, Identifier: {}", 
+                            device.getDeviceKey(), mapping.getIdentifier());
                     }
                 } catch (Exception e) {
-                    log.debug("S7读取寄存器失败 - DeviceId: {}, Property: {}", 
-                            deviceId, mapping.getIdentifier());
+                    log.error("S7读取寄存器失败 - DeviceId: {}, Property: {}, 错误: {}", 
+                            deviceId, mapping.getIdentifier(), e.getMessage());
                     // 读取失败，抛出异常让上层处理
                     throw e;
                 }
@@ -242,6 +259,7 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
                 // 构建标准Topic格式: /{productId}/{deviceKey}/property/post
                 String topic = String.format("/%s/%s/property/post", 
                         device.getProductId(), device.getDeviceKey());
+                log.info("S7采集数据成功 - DeviceKey: {}, 数据: {}", device.getDeviceKey(), data.toString());
                 deviceMessageService.handleDeviceMessage(topic, data.toString());
             }
             
@@ -283,20 +301,37 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
      * @return 读取的值
      */
     private Object readRegister(String deviceId, IotDeviceRegisterMapping mapping) {
-        Integer address = mapping.getRegisterAddress();
-        if (address == null) {
-            return null;
+        // 优先从extJson中读取address字段（新架构）
+        String addressStr = null;
+        if (StrUtil.isNotBlank(mapping.getExtJson())) {
+            try {
+                JSONObject extJson = JSONUtil.parseObj(mapping.getExtJson());
+                addressStr = extJson.getStr("address");
+            } catch (Exception e) {
+                log.warn("S7解析extJson失败 - DeviceId: {}, Identifier: {}", deviceId, mapping.getIdentifier(), e);
+            }
         }
-
-        // 解析地址格式（例如：DB1.DBW100, MW10, M0.0）
-        String addressStr = mapping.getIdentifier();
         
+        // Fallback: 如果 extJson 中没有 address，使用 identifier（兼容旧数据）
+        if (StrUtil.isBlank(addressStr)) {
+            addressStr = mapping.getIdentifier();
+        }
+        
+        // 解析地址格式（例如：DB1.DBW100, MW10, M0.0）
         // DB块：DBx.DBWy, DBx.DBDy, DBx.DBBy, DBx.DBXy.z
         if (addressStr.startsWith("DB")) {
             return readDBArea(deviceId, addressStr, mapping.getDataType());
         }
+        
+        // 对于M区和V区，需要registerAddress
+        Integer address = mapping.getRegisterAddress();
+        if (address == null) {
+            log.warn("S7点位缺少registerAddress - DeviceId: {}, Identifier: {}", deviceId, addressStr);
+            return null;
+        }
+        
         // M区：MWx, MDx, MBx, Mx.y
-        else if (addressStr.startsWith("M")) {
+        if (addressStr.startsWith("M")) {
             return readMArea(deviceId, address, mapping.getDataType());
         }
         // V区：VWx, VDx, VBx, Vx.y (S7-200)
@@ -304,6 +339,7 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             return readVArea(deviceId, address, mapping.getDataType());
         }
 
+        log.warn("S7不支持的地址格式 - DeviceId: {}, Identifier: {}", deviceId, addressStr);
         return null;
     }
 
@@ -314,17 +350,45 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
         // 解析地址：DB1.DBW100
         String[] parts = address.split("\\.");
         if (parts.length < 2) {
+            log.error("S7 DB地址格式错误 - Address: {}", address);
             return null;
         }
 
-        int dbNumber = Integer.parseInt(parts[0].substring(2));
-        String dataType = parts[1].substring(0, 3); // DBW, DBD, DBB, DBX
-        int offset = Integer.parseInt(parts[1].substring(3));
+        try {
+            int dbNumber = Integer.parseInt(parts[0].substring(2));
+            String dataType = parts[1].substring(0, 3); // DBW, DBD, DBB, DBX
+            int offset = Integer.parseInt(parts[1].substring(3));
 
-        int size = getSizeByType(valueType);
-        byte[] buffer = s7Client.readDB(deviceId, dbNumber, offset, size);
-        
-        return convertValue(buffer, 0, valueType);
+            int size = getSizeByType(valueType);
+            log.info("S7读取DB区 - DeviceId: {}, DB号: {}, 偏移: {}, 字节数: {}, 数据类型: {}", 
+                deviceId, dbNumber, offset, size, valueType);
+            
+            byte[] buffer = s7Client.readDB(deviceId, dbNumber, offset, size);
+            
+            if (buffer == null) {
+                log.error("S7读取DB区返回null - DeviceId: {}, DB号: {}, 偏移: {}", 
+                    deviceId, dbNumber, offset);
+                return null;
+            }
+            
+            Object value = convertValue(buffer, 0, valueType);
+            log.info("S7 DB区读取成功 - DeviceId: {}, 原始字节: {}, 解析值: {}", 
+                deviceId, bytesToHex(buffer), value);
+            
+            return value;
+        } catch (Exception e) {
+            log.error("S7读取DB区异常 - DeviceId: {}, Address: {}, Error: {}", 
+                deviceId, address, e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
     }
 
     /**

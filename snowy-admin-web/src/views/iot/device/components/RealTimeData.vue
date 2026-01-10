@@ -88,12 +88,18 @@
 
 	// 格式化实时值
 	const formatRealTimeValue = (identifier, valueType, valueSpecs, accessMode) => {
+		console.log('🔍 formatRealTimeValue被调用 - identifier:', identifier)
+		console.log('🔍 props.realTimeDataMap:', props.realTimeDataMap)
+		console.log('🔍 props.realTimeDataMap[identifier]:', props.realTimeDataMap[identifier])
+		
 		const dataItem = props.realTimeDataMap[identifier]
 		if (!dataItem) {
+			console.warn('⚠️ 暂无数据 - identifier:', identifier)
 			return '暂无数据'
 		}
 
 		const value = dataItem.value
+		console.log('✅ 找到数据 - identifier:', identifier, ', value:', value, ', valueType:', valueType)
 
 		// 根据值类型格式化
 		if (valueType === ValueType.BOOL) {

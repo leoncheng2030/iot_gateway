@@ -184,10 +184,15 @@ public class DeviceDataHandler {
         }
 
         // 2. 批量更新设备影子
+        log.info("开始批量刷新影子 - shadowUpdateMap大小: {}", shadowUpdateMap.size());
+        
         if (!shadowUpdateMap.isEmpty()) {
             // 取出所有待更新的影子数据
             Map<String, JSONObject> updates = new HashMap<>(shadowUpdateMap);
             shadowUpdateMap.clear();
+            
+            log.info("取出影子更新数据 - 设备数: {}, DeviceIds: {}", 
+                updates.size(), String.join(",", updates.keySet()));
 
             if (!updates.isEmpty()) {
                 try {
@@ -195,6 +200,9 @@ public class DeviceDataHandler {
                     LambdaQueryWrapper<IotDeviceShadow> queryWrapper = new LambdaQueryWrapper<>();
                     queryWrapper.in(IotDeviceShadow::getDeviceId, updates.keySet());
                     List<IotDeviceShadow> existingShadows = iotDeviceShadowService.list(queryWrapper);
+                    
+                    log.info("查询现有影子 - 找到: {}个", existingShadows.size());
+                    
                     Map<String, IotDeviceShadow> existingMap = existingShadows.stream()
                         .collect(Collectors.toMap(IotDeviceShadow::getDeviceId, s -> s));
 
@@ -205,12 +213,15 @@ public class DeviceDataHandler {
                     for (Map.Entry<String, JSONObject> entry : updates.entrySet()) {
                         String deviceId = entry.getKey();
                         JSONObject newData = entry.getValue();
+                        
+                        log.info("处理设备影子 - DeviceId: {}, 新数据: {}", deviceId, newData.toString());
 
                         IotDeviceShadow shadow = existingMap.get(deviceId);
                         JSONObject reportedData = JSONUtil.createObj();
 
                         if (shadow == null) {
                             // 新增
+                            log.info("创建新影子 - DeviceId: {}", deviceId);
                             shadow = new IotDeviceShadow();
                             shadow.setDeviceId(deviceId);
                             shadow.setVersion(1L);
@@ -220,19 +231,24 @@ public class DeviceDataHandler {
                             toInsert.add(shadow);
                         } else {
                             // 更新：合并数据
+                            log.info("更新现有影子 - DeviceId: {}, 原有数据: {}", 
+                                deviceId, shadow.getReported());
                             shadow.setVersion(shadow.getVersion() + 1);
                             if (StrUtil.isNotBlank(shadow.getReported())) {
                                 try {
                                     JSONObject existingData = JSONUtil.parseObj(shadow.getReported());
                                     reportedData.putAll(existingData);
                                 } catch (Exception e) {
-                                    // 忽略解析错误
+                                    log.warn("解析现有影子数据失败 - DeviceId: {}", deviceId, e);
                                 }
                             }
                             reportedData.putAll(newData);
                             shadow.setReported(reportedData.toString());
                             shadow.setUpdateTime(DateUtil.date());
                             toUpdate.add(shadow);
+                            
+                            log.info("影子数据合并后 - DeviceId: {}, 最终数据: {}", 
+                                deviceId, reportedData.toString());
                         }
 
                         // 推送设备影子变化到前端
@@ -241,13 +257,15 @@ public class DeviceDataHandler {
 
                     // 批量保存
                     if (!toInsert.isEmpty()) {
+                        log.info("批量插入影子 - 数量: {}", toInsert.size());
                         iotDeviceShadowService.saveBatch(toInsert);
                     }
                     if (!toUpdate.isEmpty()) {
+                        log.info("批量更新影子 - 数量: {}", toUpdate.size());
                         iotDeviceShadowService.updateBatchById(toUpdate);
                     }
 
-                    log.debug("批量更新设备影子成功 - 新增: {}, 更新: {}", toInsert.size(), toUpdate.size());
+                    log.info("批量更新设备影子成功 - 新增: {}, 更新: {}", toInsert.size(), toUpdate.size());
                 } catch (Exception e) {
                     log.error("批量更新设备影子失败 - 数量: {}", updates.size(), e);
                 }
@@ -260,14 +278,20 @@ public class DeviceDataHandler {
      */
     public void handlePropertyData(IotDevice device, JSONObject data) {
         try {
+            log.info("开始处理属性数据 - DeviceId: {}, DeviceKey: {}, 数据: {}", 
+                device.getId(), device.getDeviceKey(), data.toString());
+            
             // 检测数据是否变化
             boolean dataChanged = isDataChanged(device.getId(), data);
+            log.info("数据变化检测 - DeviceId: {}, 是否变化: {}", device.getId(), dataChanged);
             
             // 1. 发送到RabbitMQ消息队列（异步解耦）
             messageProducer.sendDeviceData(device.getDeviceKey(), data);
+            log.info("已发送到RabbitMQ - DeviceKey: {}", device.getDeviceKey());
             
             // 2. 推送到前端（实时性）
             pushDeviceDataToFrontend(device, data);
+            log.info("已推送到前端SSE - DeviceId: {}", device.getId());
             
             // 3. 北向推送到外部系统（仅在数据变化时推送）
             if (dataChanged) {
@@ -280,17 +304,23 @@ public class DeviceDataHandler {
             // 4. 异步写入InfluxDB和更新影子
             sseExecutor.submit(() -> {
                 try {
+                    log.info("异步任务开始 - DeviceId: {}", device.getId());
+                    
                     // 写入InfluxDB（时序数据）
                     influxDBService.writeDeviceData(device, data);
+                    log.info("已写入InfluxDB - DeviceId: {}", device.getId());
 
                     // 更新设备影子
                     updateDeviceShadow(device.getId(), data);
+                    log.info("已调用updateDeviceShadow - DeviceId: {}", device.getId());
                 } catch (Exception e) {
-                    // 静默处理
+                    log.error("异步任务异常 - DeviceId: {}", device.getId(), e);
                 }
             });
+            
+            log.info("属性数据处理完成 - DeviceId: {}", device.getId());
         } catch (Exception e) {
-            // 静默处理
+            log.error("处理属性数据失败 - DeviceId: {}", device.getId(), e);
         }
     }
 
@@ -408,18 +438,22 @@ public class DeviceDataHandler {
      */
     private void updateDeviceShadow(String deviceId, JSONObject data) {
         try {
-            log.debug("添加设备影子更新 - DeviceId: {}, 数据: {}", deviceId, data.toString());
+            log.info("添加设备影子更新 - DeviceId: {}, 数据: {}", deviceId, data.toString());
             
             // 合并到影子更新Map中
             shadowUpdateMap.compute(deviceId, (key, existingData) -> {
                 if (existingData == null) {
+                    log.info("影子更新Map新增设备 - DeviceId: {}", deviceId);
                     return data;
                 } else {
                     // 合并新数据
                     existingData.putAll(data);
+                    log.info("影子更新Map合并数据 - DeviceId: {}, 合并后: {}", deviceId, existingData.toString());
                     return existingData;
                 }
             });
+            
+            log.info("影子更新Map当前大小: {}", shadowUpdateMap.size());
             
             // 更新缓存用于变化检测
             shadowCache.compute(deviceId, (key, existingData) -> {
@@ -538,19 +572,23 @@ public class DeviceDataHandler {
                 .set("desired", shadow.getDesired())
                 .set("version", shadow.getVersion())
                 .set("timestamp", System.currentTimeMillis());
+            
+            log.info("准备推送影子到前端 - DeviceId: {}, 消息: {}", deviceId, message.toString());
 
             // 使用线程池异步推送
             sseExecutor.submit(() -> {
                 try {
+                    log.info("开始发送SSE消息 - DeviceId: {}", deviceId);
                     devSseApi.sendMessageToAllClient(message.toString());
+                    log.info("SSE消息发送成功 - DeviceId: {}", deviceId);
                 } catch (Exception e) {
-                    // 静默处理
+                    log.error("SSE消息发送失败 - DeviceId: {}", deviceId, e);
                 }
             });
         } catch (RejectedExecutionException e) {
-            // 静默处理
+            log.error("线程池拒绝推送影子 - DeviceId: {}", deviceId, e);
         } catch (Exception e) {
-            // 静默处理
+            log.error("推送影子到前端失败 - DeviceId: {}", deviceId, e);
         }
     }
 
