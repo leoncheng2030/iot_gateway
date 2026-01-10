@@ -16,9 +16,9 @@ import jakarta.annotation.Resource;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.stereotype.Component;
 import vip.xiaonuo.common.exception.CommonException;
-import vip.xiaonuo.iot.core.protocol.server.DynamicMqttServer;
-import vip.xiaonuo.iot.core.protocol.server.DynamicTcpServer;
-import vip.xiaonuo.iot.core.protocol.server.DynamicWebSocketServer;
+import vip.xiaonuo.iot.core.protocol.impl.DynamicMqttServer;
+import vip.xiaonuo.iot.core.protocol.impl.DynamicTcpServer;
+import vip.xiaonuo.iot.core.protocol.impl.DynamicWebSocketServer;
 
 import java.util.List;
 import java.util.stream.Collectors;

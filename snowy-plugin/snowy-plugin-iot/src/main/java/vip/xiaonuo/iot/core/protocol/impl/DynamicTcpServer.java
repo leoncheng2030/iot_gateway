@@ -1,16 +1,4 @@
-/*
- * Copyright [2022] [https://www.xiaonuo.vip]
- *
- * Snowy采用APACHE LICENSE 2.0开源协议，您在使用过程中，需要注意以下几点：
- *
- * 1.请不要删除和修改根目录下的LICENSE文件。
- * 2.请不要删除和修改Snowy源码头部的版权声明。
- * 3.本项目代码可免费商业使用，商业使用请保留源码和相关描述文件的项目出处，作者声明等。
- * 4.分发源码时候，请注明软件出处 https://www.xiaonuo.vip
- * 5.不可二次分发开源参与同类竞品，如有想法可联系团队xiaonuobase@qq.com商议合作。
- * 6.若您的项目无法满足以上几点，需要更多功能代码，获取Snowy商业授权许可，请在官网购买授权，地址为 https://www.xiaonuo.vip
- */
-package vip.xiaonuo.iot.core.protocol.server;
+package vip.xiaonuo.iot.core.protocol.impl;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
@@ -56,9 +44,9 @@ public class DynamicTcpServer implements ProtocolServer {
 
         // 获取配置参数
         int maxFrameLength = getConfigInt(config, "maxFrameLength", 1024);
-        int readTimeout = getConfigInt(config, "readTimeout", 0);
-        int writeTimeout = getConfigInt(config, "writeTimeout", 0);
-        int idleTimeout = getConfigInt(config, "idleTimeout", 0);
+        int readTimeout = getConfigInt(config, "readTimeout", 0);  // 禁用读超时，设备被动响应模式
+        int writeTimeout = getConfigInt(config, "writeTimeout", 0);  // 禁用写超时
+        int idleTimeout = getConfigInt(config, "idleTimeout", 0);  // 禁用空闲超时
 
         bossGroup = new NioEventLoopGroup(NettyThreadPoolConfig.getBossThreads());
         workerGroup = new NioEventLoopGroup(NettyThreadPoolConfig.getWorkerThreads());
@@ -75,10 +63,15 @@ public class DynamicTcpServer implements ProtocolServer {
                         protected void initChannel(SocketChannel ch) {
                             ChannelPipeline pipeline = ch.pipeline();
                             
+                            // 超时处理（0表示禁用）
                             if (readTimeout > 0 || writeTimeout > 0 || idleTimeout > 0) {
                                 pipeline.addLast(new IdleStateHandler(readTimeout, writeTimeout, idleTimeout, TimeUnit.SECONDS));
                             }
                             
+                            // 不使用任何编解码器，直接处理原始ByteBuf，避免数据丢失
+                            // 业务处理器会同时处理文本和二进制数据
+                            
+                            // 业务处理器
                             pipeline.addLast(new TcpServerHandler());
                         }
                     });
@@ -133,6 +126,9 @@ public class DynamicTcpServer implements ProtocolServer {
         return "TCP";
     }
 
+    /**
+     * 获取配置中的整数值
+     */
     private int getConfigInt(Map<String, Object> config, String key, int defaultValue) {
         if (config == null || !config.containsKey(key)) {
             return defaultValue;
@@ -149,6 +145,9 @@ public class DynamicTcpServer implements ProtocolServer {
         }
     }
 
+    /**
+     * TCP业务处理器
+     */
     @ChannelHandler.Sharable
     static class TcpServerHandler extends SimpleChannelInboundHandler<Object> {
 
@@ -160,18 +159,25 @@ public class DynamicTcpServer implements ProtocolServer {
             log.info(">>> 本地地址: {}", ctx.channel().localAddress());
             log.info(">>> ========================================");
             
+            // 尝试发送多种握手消息，触发设备开始通信
+            // 设备可能需要特定指令才开始数据上报
             try {
+                // 延迟100ms，确保连接稳定
                 Thread.sleep(100);
                 
+                // 尝试1: 简单的OK响应
                 sendMessage(ctx, "OK\n");
                 Thread.sleep(50);
                 
+                // 尝试2: 注册确认
                 sendMessage(ctx, "REG_OK\n");
                 Thread.sleep(50);
                 
+                // 尝试3: 握手确认
                 sendMessage(ctx, "HANDSHAKE\n");
                 Thread.sleep(50);
                 
+                // 尝试4: 心跳响应（模拟对reg001的响应）
                 sendMessage(ctx, "ACK\n");
                 
                 log.info(">>> 已发送握手序列: OK, REG_OK, HANDSHAKE, ACK");
@@ -180,6 +186,9 @@ public class DynamicTcpServer implements ProtocolServer {
             }
         }
         
+        /**
+         * 发送文本消息
+         */
         private void sendMessage(ChannelHandlerContext ctx, String msg) {
             ByteBuf buf = ctx.alloc().buffer();
             buf.writeBytes(msg.getBytes(StandardCharsets.UTF_8));
@@ -193,6 +202,7 @@ public class DynamicTcpServer implements ProtocolServer {
             log.info(">>> 收到TCP数据");
             log.info(">>> 来自: {}", ctx.channel().remoteAddress());
             
+            // 统一处理为ByteBuf
             if (msg instanceof ByteBuf) {
                 ByteBuf buf = (ByteBuf) msg;
                 byte[] bytes = new byte[buf.readableBytes()];
@@ -202,6 +212,7 @@ public class DynamicTcpServer implements ProtocolServer {
                 log.info(">>> 数据长度: {} 字节", bytes.length);
                 log.info(">>> 数据内容(HEX): {}", bytesToHex(bytes));
                 
+                // 尝试转换为ASCII字符串
                 String asciiStr = new String(bytes, StandardCharsets.UTF_8);
                 if (isPrintable(asciiStr)) {
                     log.info(">>> 数据内容(ASCII): {}", asciiStr.trim());
@@ -209,6 +220,7 @@ public class DynamicTcpServer implements ProtocolServer {
                     log.info(">>> 数据内容(ASCII): [不可打印字符]");
                 }
                 
+                // 回复确认消息
                 ByteBuf response = ctx.alloc().buffer();
                 response.writeBytes("OK\n".getBytes(StandardCharsets.UTF_8));
                 ctx.writeAndFlush(response);
@@ -222,6 +234,9 @@ public class DynamicTcpServer implements ProtocolServer {
             log.info(">>> ========================================");
         }
         
+        /**
+         * 字节数组转十六进制字符串
+         */
         private String bytesToHex(byte[] bytes) {
             StringBuilder sb = new StringBuilder();
             for (byte b : bytes) {
@@ -230,6 +245,9 @@ public class DynamicTcpServer implements ProtocolServer {
             return sb.toString().trim();
         }
         
+        /**
+         * 检查字符串是否可打印
+         */
         private boolean isPrintable(String str) {
             for (char c : str.toCharArray()) {
                 if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
