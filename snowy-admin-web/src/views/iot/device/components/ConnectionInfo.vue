@@ -136,7 +136,7 @@
 		// S7协议
 		if (protocol === 'S7' || protocol === 'TCP') {
 			fields.push(
-				{ key: 'host', label: 'PLC地址', value: config.host || props.deviceData.ipAddress || '-', copyable: true },
+				{ key: 'host', label: 'PLC地址', value: config.host || '-', copyable: true },
 				{ key: 'port', label: '端口', value: config.port || 102, tag: true, tagColor: 'blue' },
 				{ key: 'rack', label: '机架号(Rack)', value: config.rack ?? 0, tag: true, tagColor: 'orange' },
 				{ key: 'slot', label: '插槽号(Slot)', value: config.slot ?? 1, tag: true, tagColor: 'orange' },
@@ -153,7 +153,7 @@
 		// Modbus TCP
 		else if (protocol === 'MODBUS_TCP') {
 			fields.push(
-				{ key: 'ip', label: '设备IP地址', value: config.ip || '-', copyable: true },
+				{ key: 'host', label: '设备主机地址', value: config.host || '-', copyable: true },
 				{ key: 'port', label: '通信端口', value: config.port || 502, tag: true, tagColor: 'blue' },
 				{ key: 'slaveAddress', label: 'Modbus从站地址', value: config.slaveAddress || '-', tag: true, tagColor: 'orange' },
 				{

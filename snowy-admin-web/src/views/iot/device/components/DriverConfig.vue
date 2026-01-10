@@ -71,7 +71,7 @@
 					<a-textarea
 						v-model:value="bindForm.deviceConfig"
 						:rows="8"
-						placeholder='例: {"ip":"192.168.1.100","port":502}'
+						placeholder='例: {"host":"192.168.1.100","port":502}'
 					/>
 				</a-form-item>
 			</a-form>

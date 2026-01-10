@@ -221,32 +221,32 @@ public class DriverConfigUtil {
     }
 
     /**
-     * 从驱动关联配置或设备扩展配置中获取IP地址
+     * 从驱动关联配置或设备扩展配置中获取主机地址
      * 优先级：驱动关联device_config > 设备extJson
      * 
      * @param driverRel 设备驱动关联（可为null）
      * @param device 设备（可为null）
-     * @return IP地址，可能为null
+     * @return 主机地址，可能为null
      */
     public static String getIpAddress(IotDeviceDriverRel driverRel, IotDevice device) {
-        // 1. 优先使用驱动关联配置（device_config中的ip字段）
+        // 1. 优先使用驱动关联配置（device_config中的host字段）
         if (driverRel != null && StrUtil.isNotBlank(driverRel.getDeviceConfig())) {
             try {
                 JSONObject deviceConfig = JSONUtil.parseObj(driverRel.getDeviceConfig());
-                String ip = deviceConfig.getStr("ip");
-                if (StrUtil.isNotBlank(ip)) {
-                    return ip;
+                String host = deviceConfig.getStr("host");
+                if (StrUtil.isNotBlank(host)) {
+                    return host;
                 }
             } catch (Exception e) {
                 // 解析失败，继续使用设备配置
             }
         }
         
-        // 2. 使用设备扩展配置（extJson中的ipAddress字段）
+        // 2. 使用设备扩展配置（extJson中的host字段）
         if (device != null && StrUtil.isNotBlank(device.getExtJson())) {
             try {
                 JSONObject extJson = JSONUtil.parseObj(device.getExtJson());
-                return extJson.getStr("ipAddress");
+                return extJson.getStr("host");
             } catch (Exception e) {
                 return null;
             }
@@ -256,10 +256,10 @@ public class DriverConfigUtil {
     }
     
     /**
-     * 从设备扩展配置中获取IP地址（兼容旧版本调用）
+     * 从设备扩展配置中获取主机地址（兼容旧版本调用）
      * 
      * @param device 设备
-     * @return IP地址，可能为null
+     * @return 主机地址，可能为null
      */
     public static String getIpAddress(IotDevice device) {
         return getIpAddress(null, device);

@@ -1,16 +1,16 @@
 /*
  * Copyright [2022] [https://www.xiaonuo.vip]
  *
- * Snowy采用APACHE LICENSE 2.0开源协议，您在使用过程中，需要注意以下几点：
+ * Snowy閲囩敤APACHE LICENSE 2.0寮€婧愬崗璁紝鎮ㄥ湪浣跨敤杩囩▼涓紝闇€瑕佹敞鎰忎互涓嬪嚑鐐癸細
  *
- * 1.请不要删除和修改根目录下的LICENSE文件。
- * 2.请不要删除和修改Snowy源码头部的版权声明。
- * 3.本项目代码可免费商业使用，商业使用请保留源码和相关描述文件的项目出处，作者声明等。
- * 4.分发源码时候，请注明软件出处 https://www.xiaonuo.vip
- * 5.不可二次分发开源参与同类竞品，如有想法可联系团队xiaonuobase@qq.com商议合作。
- * 6.若您的项目无法满足以上几点，需要更多功能代码，获取Snowy商业授权许可，请在官网购买授权，地址为 https://www.xiaonuo.vip
+ * 1.璇蜂笉瑕佸垹闄ゅ拰淇敼鏍圭洰褰曚笅鐨凩ICENSE鏂囦欢銆?
+ * 2.璇蜂笉瑕佸垹闄ゅ拰淇敼Snowy婧愮爜澶撮儴鐨勭増鏉冨０鏄庛€?
+ * 3.鏈」鐩唬鐮佸彲鍏嶈垂鍟嗕笟浣跨敤锛屽晢涓氫娇鐢ㄨ淇濈暀婧愮爜鍜岀浉鍏虫弿杩版枃浠剁殑椤圭洰鍑哄锛屼綔鑰呭０鏄庣瓑銆?
+ * 4.鍒嗗彂婧愮爜鏃跺€欙紝璇锋敞鏄庤蒋浠跺嚭澶?https://www.xiaonuo.vip
+ * 5.涓嶅彲浜屾鍒嗗彂寮€婧愬弬涓庡悓绫荤珵鍝侊紝濡傛湁鎯虫硶鍙仈绯诲洟闃焫iaonuobase@qq.com鍟嗚鍚堜綔銆?
+ * 6.鑻ユ偍鐨勯」鐩棤娉曟弧瓒充互涓婂嚑鐐癸紝闇€瑕佹洿澶氬姛鑳戒唬鐮侊紝鑾峰彇Snowy鍟嗕笟鎺堟潈璁稿彲锛岃鍦ㄥ畼缃戣喘涔版巿鏉冿紝鍦板潃涓?https://www.xiaonuo.vip
  */
-package vip.xiaonuo.iot.core.protocol.impl;
+package vip.xiaonuo.iot.core.protocol.server;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -36,13 +36,13 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 动态MQTT服务器
+ * 鍔ㄦ€丮QTT鏈嶅姟鍣?
  *
  * @author jetox
  * @date 2025/12/11 10:40
  **/
 @Slf4j
-@Protocol(type = "MQTT", name = "MQTT协议", description = "动态MQTT协议服务器，支持MQTT 3.1/3.1.1/5.0")
+@Protocol(type = "MQTT", name = "MQTT鍗忚", description = "鍔ㄦ€丮QTT鍗忚鏈嶅姟鍣紝鏀寔MQTT 3.1/3.1.1/5.0")
 public class DynamicMqttServer implements ProtocolServer {
 
     private final MqttServerHandler mqttServerHandler;
@@ -60,7 +60,7 @@ public class DynamicMqttServer implements ProtocolServer {
     public void start(Integer port, Map<String, Object> config) {
         this.port = port;
         
-        // 从配置中获取参数，如果没有则使用默认值
+        // 浠庨厤缃腑鑾峰彇鍙傛暟锛屽鏋滄病鏈夊垯浣跨敤榛樿鍊?
         int keepAlive = getConfigInt(config, "keepAlive", 60);
         int maxMessageSize = getConfigInt(config, "maxMessageSize", 8192);
         boolean enableWebSocket = getConfigBoolean(config, "enableWebSocket", false);
@@ -81,7 +81,7 @@ public class DynamicMqttServer implements ProtocolServer {
                         protected void initChannel(SocketChannel ch) {
                             ChannelPipeline pipeline = ch.pipeline();
                             
-                            // 心跳检测
+                            // 蹇冭烦妫€娴?
                             pipeline.addLast(new IdleStateHandler(
                                     keepAlive * 2,
                                     0,
@@ -89,22 +89,22 @@ public class DynamicMqttServer implements ProtocolServer {
                                     TimeUnit.SECONDS
                             ));
                             
-                            // MQTT编解码器（纯TCP模式）
+                            // MQTT缂栬В鐮佸櫒锛堢函TCP妯″紡锛?
                             pipeline.addLast("decoder", new MqttDecoder(maxMessageSize));
                             pipeline.addLast("encoder", MqttEncoder.INSTANCE);
                             
-                            // MQTT业务处理器
+                            // MQTT涓氬姟澶勭悊鍣?
                             pipeline.addLast("handler", mqttServerHandler);
                         }
                     });
 
             ChannelFuture future = bootstrap.bind(port).sync();
             serverChannel = future.channel();
-            log.info(">>> 动态MQTT服务器启动成功，监听端口: {}", port);
+            log.info(">>> 鍔ㄦ€丮QTT鏈嶅姟鍣ㄥ惎鍔ㄦ垚鍔燂紝鐩戝惉绔彛: {}", port);
 
         } catch (Exception e) {
             stop();
-            throw new RuntimeException("MQTT服务器启动失败: " + e.getMessage(), e);
+            throw new RuntimeException("MQTT鏈嶅姟鍣ㄥ惎鍔ㄥけ璐? " + e.getMessage(), e);
         }
     }
 
@@ -127,7 +127,7 @@ public class DynamicMqttServer implements ProtocolServer {
                 TimeUnit.SECONDS
             );
         }
-        log.info(">>> 动态MQTT服务器已关闭，端口: {}", port);
+        log.info(">>> 鍔ㄦ€丮QTT鏈嶅姟鍣ㄥ凡鍏抽棴锛岀鍙? {}", port);
     }
 
     @Override
@@ -175,7 +175,7 @@ public class DynamicMqttServer implements ProtocolServer {
     }
 
     /**
-     * 工厂类，用于创建DynamicMqttServer实例
+     * 宸ュ巶绫伙紝鐢ㄤ簬鍒涘缓DynamicMqttServer瀹炰緥
      */
     @Component
     public static class Factory {
