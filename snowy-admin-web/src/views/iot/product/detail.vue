@@ -114,10 +114,11 @@
 				</a-table>
 			</a-tab-pane>
 
-			<!-- Modbus寄存器映射(仅Modbus协议) -->
-			<a-tab-pane v-if="productData.protocolType === 'MODBUS_TCP'" key="registerMapping" tab="寄存器映射">
+			<!-- 寄存器映射(支持Modbus、S7等协议) -->
+			<a-tab-pane v-if="isProtocolSupportMapping" key="registerMapping" tab="寄存器映射">
 				<RegisterMappingConfig
 					v-model:mapping-list="productMappingList"
+					:protocol-type="productData.protocolType"
 					:loading="mappingLoading"
 					:saving="mappingSaving"
 					tip="产品级配置将作为新增设备的默认配置,设备可按需覆盖"
@@ -247,7 +248,7 @@
 	import iotProductApi from '@/api/iot/iotProductApi'
 	import iotThingModelApi from '@/api/iot/iotThingModelApi'
 	import iotDeviceApi from '@/api/iot/iotDeviceApi'
-	import iotProductRegisterApi from '@/api/iot/iotProductRegisterApi'
+	import iotProductPropertyMappingApi from '@/api/iot/iotProductPropertyMappingApi'
 	import ThingModelForm from './thingModelForm.vue'
 	import RegisterMappingConfig from '../components/RegisterMappingConfig.vue'
 	import downloadUtil from '@/utils/downloadUtil'
@@ -289,6 +290,12 @@
 	const filteredThingModelList = computed(() => {
 		if (!modelTypeFilter.value) return thingModelList.value
 		return thingModelList.value.filter((item) => item.modelType === modelTypeFilter.value)
+	})
+
+	// 判断协议是否支持寄存器映射
+	const isProtocolSupportMapping = computed(() => {
+		const supportedProtocols = ['MODBUS_TCP', 'MODBUS_RTU', 'S7', 'TCP']
+		return supportedProtocols.includes(productData.value.protocolType)
 	})
 
 	// 设备列表列定义
@@ -427,12 +434,12 @@
 
 	// 加载产品寄存器映射
 	const loadProductMapping = async () => {
-		if (!productData.value.id || productData.value.protocolType !== 'MODBUS_TCP') return
+		if (!productData.value.id || !isProtocolSupportMapping.value) return
 
 		mappingLoading.value = true
 		try {
 			// 1. 先查询产品级映射
-			const productMappings = await iotProductRegisterApi.iotProductRegisterList({
+			const productMappings = await iotProductPropertyMappingApi.iotProductPropertyMappingList({
 				productId: productData.value.id
 			})
 
@@ -454,7 +461,9 @@
 					identifier: prop.identifier,
 					name: prop.name,
 					description: prop.description,
+					// Modbus使用registerAddress，S7使用displayAddress
 					registerAddress: existMapping?.registerAddress,
+					displayAddress: existMapping?.registerAddress, // S7地址也存在registerAddress中
 					functionCode: existMapping?.functionCode,
 					dataType: existMapping?.dataType || 'int',
 					scaleFactor: existMapping?.scaleFactor ?? 1.0,
@@ -471,39 +480,89 @@
 
 	// 保存产品寄存器映射
 	const saveProductMapping = async () => {
+		console.log('========== 开始保存产品寄存器映射 ==========')
+		console.log('产品ID:', productData.value.id)
+		console.log('协议类型:', productData.value.protocolType)
+		console.log('原始映射列表:', productMappingList.value)
+		
 		mappingSaving.value = true
 		try {
-			const mappings = productMappingList.value
-				.filter((item) => item.registerAddress != null && item.functionCode)
-				.map((item) => ({
-					thingModelId: item.thingModelId,
+			// 根据协议类型判断过滤条件
+			const isModbus = productData.value.protocolType === 'MODBUS_TCP' || productData.value.protocolType === 'MODBUS_RTU'
+			
+			// 调试：打印每条映射的详细信息
+			productMappingList.value.forEach((item, index) => {
+				console.log(`映射 ${index}:`, {
 					identifier: item.identifier,
+					name: item.name,
 					registerAddress: item.registerAddress,
+					registerAddress类型: typeof item.registerAddress,
 					functionCode: item.functionCode,
-					dataType: item.dataType,
-					scaleFactor: item.scaleFactor ?? 1.0,
-					offset: item.offset ?? 0.0,
-					bitIndex: item.bitIndex,
-					byteOrder: item.byteOrder || 'BIG_ENDIAN',
-					enabled: item.enabled ?? true
-				}))
+					完整数据: item
+				})
+			})
+			
+			const mappings = productMappingList.value
+				.filter((item) => {
+					// S7协议：使用displayAddress
+					if (!isModbus) {
+						const hasAddress = (item.displayAddress != null && item.displayAddress !== '') || 
+						                   (item.registerAddress != null && item.registerAddress !== '')
+						console.log(`${item.identifier} - displayAddress: ${item.displayAddress}, registerAddress: ${item.registerAddress}, 通过过滤: ${hasAddress}`)
+						return hasAddress
+					}
+					// Modbus协议：需要地址和功能码
+					return item.registerAddress != null && item.functionCode
+				})
+				.map((item) => {
+					// S7协议使用displayAddress，但后端存储在registerAddress字段
+					const address = isModbus ? item.registerAddress : (item.displayAddress || item.registerAddress)
+					return {
+						thingModelId: item.thingModelId,
+						identifier: item.identifier,
+						registerAddress: address,
+						functionCode: item.functionCode,
+						dataType: item.dataType,
+						scaleFactor: item.scaleFactor ?? 1.0,
+						offset: item.offset ?? 0.0,
+						bitIndex: item.bitIndex,
+						byteOrder: item.byteOrder || 'BIG_ENDIAN',
+						enabled: item.enabled ?? true
+					}
+				})
 
+			console.log('过滤后的映射数量:', mappings.length)
+			console.log('待保存的映射:', mappings)
+			
 			if (mappings.length === 0) {
-				message.warning('请至少配置一个寄存器映射')
+				console.warn('⚠️ 没有有效的映射配置')
+				if (isModbus) {
+					message.warning('请至少配置一个寄存器映射（需要地址和功能码）')
+				} else {
+					message.warning('请至少配置一个地址映射')
+				}
 				return
 			}
 
-			await iotProductRegisterApi.iotProductRegisterBatchSave({
+			// API调用：productId在URL中，mappings作为请求体
+			const requestData = {
 				productId: productData.value.id,
 				mappings: mappings
-			})
+			}
+			console.log('API请求数据:', requestData)
+			
+			const response = await iotProductPropertyMappingApi.iotProductPropertyMappingBatchSave(requestData)
+			console.log('API响应:', response)
 
 			message.success('产品寄存器映射保存成功')
+			console.log('✅ 保存成功，开始重新加载映射')
 			loadProductMapping()
 		} catch (e) {
+			console.error('❌ 保存失败:', e)
 			message.error('保存失败: ' + e.message)
 		} finally {
 			mappingSaving.value = false
+			console.log('========== 保存流程结束 ==========')
 		}
 	}
 

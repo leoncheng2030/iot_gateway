@@ -200,17 +200,6 @@
 			</a-descriptions>
 
 			<a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-				<!-- 数据类型选择 -->
-				<a-form-item label="数据类型">
-					<a-select
-						v-model:value="currentConfigItem.dataType"
-						style="width: 100%"
-						:options="dataTypeOptions"
-						placeholder="选择数据类型"
-					/>
-					<a-typography-text type="secondary">选择点位的数据类型 (int/float/bool)</a-typography-text>
-				</a-form-item>
-
 				<!-- 布尔类型配置 -->
 				<template v-if="currentConfigItem.dataType === 'bool'">
 					<a-form-item label="位索引">
@@ -312,6 +301,12 @@
 			default: 'MODBUS_TCP'
 		}
 	})
+
+	// 调试日志
+	console.log('========== RegisterMappingConfig 组件初始化 ==========')
+	console.log('showModeSwitch:', props.showModeSwitch)
+	console.log('protocolType:', props.protocolType)
+	console.log('mappingList:', props.mappingList)
 
 	const emit = defineEmits(['save', 'refresh', 'delete', 'modeChange', 'update:mappingList', 'update:useDeviceMapping'])
 
@@ -533,13 +528,6 @@
 		{ label: '0x06 - 写单个寄存器', value: '0x06' },
 		{ label: '0x0F - 写多个线圈', value: '0x0F' },
 		{ label: '0x10 - 写多个寄存器', value: '0x10' }
-	]
-
-	// 数据类型选项
-	const dataTypeOptions = [
-		{ label: '开关量 (bool)', value: 'bool' },
-		{ label: '整数 (int)', value: 'int' },
-		{ label: '浮点数 (float)', value: 'float' }
 	]
 
 	// 字节序选项

@@ -16,11 +16,12 @@ import vip.xiaonuo.iot.modular.device.entity.IotDevice;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 import vip.xiaonuo.iot.modular.devicedriverrel.service.IotDeviceDriverRelService;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
-import vip.xiaonuo.iot.modular.register.service.IotDeviceRegisterMappingService;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * S7驱动 - 西门子PLC
@@ -48,7 +49,7 @@ public class S7Driver extends AbstractDeviceDriver {
 	private IotDeviceDriverRelService iotDeviceDriverRelService;
 	
 	@Resource
-	private IotDeviceRegisterMappingService registerMappingService;
+	private IotDevicePropertyMappingService propertyMappingService;
 	
 	/** 驱动ID */
 	private String driverId;
@@ -121,18 +122,34 @@ public class S7Driver extends AbstractDeviceDriver {
 			throw new IllegalStateException("设备未绑定驱动 - DeviceId: " + device.getId());
 		}
 		
-		// 查询寄存器映射
-		LambdaQueryWrapper<IotDeviceRegisterMapping> mappingQuery = new LambdaQueryWrapper<>();
-		mappingQuery.eq(IotDeviceRegisterMapping::getDeviceId, device.getId())
-					.eq(IotDeviceRegisterMapping::getEnabled, true)
-					.orderByAsc(IotDeviceRegisterMapping::getSortCode);
-		List<IotDeviceRegisterMapping> registerMappings = registerMappingService.list(mappingQuery);
+		// 查询属性映射和地址配置
+		List<Map<String, Object>> mappings = propertyMappingService.getDevicePropertyMappingsWithAddress(device.getId());
+		
+		// 提取启用的地址配置
+		List<IotDeviceAddressConfig> addressConfigs = new ArrayList<>();
+		for (Map<String, Object> item : mappings) {
+			IotDeviceAddressConfig config = (IotDeviceAddressConfig) item.get("addressConfig");
+			if (config != null && config.getEnabled()) {
+				// 将identifier存入extConfig以便后续使用
+				String identifier = (String) item.get("identifier");
+				if (config.getExtConfig() != null) {
+					try {
+						cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+						extConfig.set("identifier", identifier);
+						config.setExtConfig(extConfig.toString());
+					} catch (Exception e) {
+						log.warn("解析extConfig失败: {}", config.getExtConfig());
+					}
+				}
+				addressConfigs.add(config);
+			}
+		}
 		
 		log.info("S7设备加载点位映射 - DeviceId: {}, DeviceKey: {}, 点位数量: {}", 
-			device.getId(), device.getDeviceKey(), registerMappings.size());
+			device.getId(), device.getDeviceKey(), addressConfigs.size());
 		
 		// 添加到S7协议服务
-		s7ProtocolServer.addDevice(device, driverRel, registerMappings);
+		s7ProtocolServer.addDevice(device, driverRel, addressConfigs);
 	}
 
 	/**

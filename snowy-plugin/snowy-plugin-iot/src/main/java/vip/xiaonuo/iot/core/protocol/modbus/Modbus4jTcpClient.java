@@ -25,8 +25,8 @@ import vip.xiaonuo.iot.modular.device.entity.IotDevice;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 import vip.xiaonuo.iot.modular.product.service.IotProductService;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
-import vip.xiaonuo.iot.modular.register.service.IotDeviceRegisterMappingService;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -51,7 +51,7 @@ public class Modbus4jTcpClient {
     private IotProductService iotProductService;
 
     @Resource
-    private IotDeviceRegisterMappingService iotDeviceRegisterMappingService;
+    private IotDevicePropertyMappingService iotDevicePropertyMappingService;
 
     @Resource
     private DeviceDataHandler deviceDataHandler;
@@ -606,8 +606,8 @@ public class Modbus4jTcpClient {
         Map<String, Object> result = new HashMap<>();
         
         try {
-            // 加载设备的寄存器映射（优先设备级）
-            Map<Integer, IotDeviceRegisterMapping> mappingMap = iotDeviceRegisterMappingService.getRegisterMappingByFunctionCode(device.getId(), functionCode);
+            // 加载设备的地址配置（优先设备级）
+            Map<Integer, IotDeviceAddressConfig> mappingMap = iotDevicePropertyMappingService.getAddressConfigByFunctionCode(device.getId(), functionCode);
             
             if (mappingMap.isEmpty()) {
                 return result;
@@ -616,10 +616,13 @@ public class Modbus4jTcpClient {
             // 解析每个位
             for (int i = 0; i < values.length; i++) {
                 int address = startAddress + i;
-                IotDeviceRegisterMapping mapping = mappingMap.get(address);
+                IotDeviceAddressConfig config = mappingMap.get(address);
                 
-                if (mapping != null) {
-                    result.put(mapping.getIdentifier(), values[i]);
+                if (config != null) {
+                    String identifier = getIdentifierFromMapping(config);
+                    if (identifier != null) {
+                        result.put(identifier, values[i]);
+                    }
                 }
             }
 
@@ -637,8 +640,8 @@ public class Modbus4jTcpClient {
         Map<String, Object> result = new HashMap<>();
         
         try {
-            // 加载设备的寄存器映射（优先设备级）
-            Map<Integer, IotDeviceRegisterMapping> mappingMap = iotDeviceRegisterMappingService.getRegisterMappingByFunctionCode(device.getId(), functionCode);
+            // 加载设备的地址配置（优先设备级）
+            Map<Integer, IotDeviceAddressConfig> mappingMap = iotDevicePropertyMappingService.getAddressConfigByFunctionCode(device.getId(), functionCode);
             
             if (mappingMap.isEmpty()) {
                 return result;
@@ -647,16 +650,19 @@ public class Modbus4jTcpClient {
             // 解析每个寄存器
             for (int i = 0; i < values.length; i++) {
                 int address = startAddress + i;
-                IotDeviceRegisterMapping mapping = mappingMap.get(address);
+                IotDeviceAddressConfig config = mappingMap.get(address);
                 
-                if (mapping != null) {
+                if (config != null) {
                     try {
-                        String dataType = mapping.getDataType() != null ? mapping.getDataType() : "int";
+                        String dataType = config.getDataType() != null ? config.getDataType() : "int";
                         
                         int unsignedValue = values[i] & 0xFFFF; // 转为无符号
-                        Object parsedValue = parseValueWithMapping(unsignedValue, mapping);
+                        Object parsedValue = parseValueWithMapping(unsignedValue, config);
                         
-                        result.put(mapping.getIdentifier(), parsedValue);
+                        String identifier = getIdentifierFromMapping(config);
+                        if (identifier != null) {
+                            result.put(identifier, parsedValue);
+                        }
                     } catch (Exception e) {
                         // 静默处理
                     }
@@ -673,13 +679,20 @@ public class Modbus4jTcpClient {
     /**
      * 根据映射配置解析值(应用缩放系数和偏移量)
      */
-    private Object parseValueWithMapping(int rawValue, IotDeviceRegisterMapping mapping) {
-        String dataType = mapping.getDataType() != null ? mapping.getDataType() : "int";
+    private Object parseValueWithMapping(int rawValue, IotDeviceAddressConfig config) {
+        String dataType = config.getDataType() != null ? config.getDataType() : "int";
         
         // 1. 处理位索引(用于布尔类型)
-        if ("bool".equalsIgnoreCase(dataType) && mapping.getBitIndex() != null) {
-            int bitIndex = mapping.getBitIndex();
-            return ((rawValue >> bitIndex) & 1) == 1;
+        if ("bool".equalsIgnoreCase(dataType) && config.getExtConfig() != null) {
+            try {
+                cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+                Integer bitIndex = extConfig.getInt("bitIndex");
+                if (bitIndex != null) {
+                    return ((rawValue >> bitIndex) & 1) == 1;
+                }
+            } catch (Exception e) {
+                // 忽略
+            }
         }
         
         // 2. 基础类型转换
@@ -695,13 +708,13 @@ public class Modbus4jTcpClient {
             double numericValue = ((Number) baseValue).doubleValue();
             
             // 应用缩放系数 (默认1.0)
-            if (mapping.getScaleFactor() != null) {
-                numericValue = numericValue * mapping.getScaleFactor().doubleValue();
+            if (config.getValueMultiplier() != null) {
+                numericValue = numericValue * config.getValueMultiplier().doubleValue();
             }
             
             // 应用偏移量 (默认0.0)
-            if (mapping.getOffset() != null) {
-                numericValue = numericValue + mapping.getOffset().doubleValue();
+            if (config.getValueOffset() != null) {
+                numericValue = numericValue + config.getValueOffset().doubleValue();
             }
             
             // 根据数据类型返回
@@ -713,6 +726,21 @@ public class Modbus4jTcpClient {
         }
         
         return baseValue;
+    }
+    
+    /**
+     * 从映射配置中获取identifier
+     */
+    private String getIdentifierFromMapping(IotDeviceAddressConfig config) {
+        if (config.getExtConfig() != null) {
+            try {
+                cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+                return extConfig.getStr("identifier");
+            } catch (Exception e) {
+                log.warn("解析identifier失败: {}", config.getExtConfig());
+            }
+        }
+        return null;
     }
 
     /**

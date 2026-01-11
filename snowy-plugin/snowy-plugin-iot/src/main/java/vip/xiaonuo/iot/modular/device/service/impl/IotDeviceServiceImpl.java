@@ -32,6 +32,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -57,8 +58,10 @@ import vip.xiaonuo.iot.modular.deviceshadow.service.IotDeviceShadowService;
 import vip.xiaonuo.iot.modular.devicegrouprel.entity.IotDeviceGroupRel;
 import vip.xiaonuo.iot.modular.devicegrouprel.service.IotDeviceGroupRelService;
 import vip.xiaonuo.iot.modular.product.service.IotProductService;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
-import vip.xiaonuo.iot.modular.register.service.IotDeviceRegisterMappingService;
+import vip.xiaonuo.iot.modular.product.service.IotProductPropertyMappingService;
+import vip.xiaonuo.iot.modular.product.service.IotProductAddressConfigService;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 import vip.xiaonuo.iot.modular.product.entity.IotProduct;
 import vip.xiaonuo.iot.core.message.DeviceMessageService;
 import vip.xiaonuo.common.util.CommonDownloadUtil;
@@ -78,6 +81,7 @@ import java.util.stream.Collectors;
  * @author jetox
  * @date  2025/12/11 07:24
  **/
+@Slf4j
 @Service
 public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice> implements IotDeviceService {
 
@@ -91,7 +95,7 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
     private IotProductService iotProductService;
     	
     @Resource
-    private IotDeviceRegisterMappingService iotDeviceRegisterMappingService;
+    private IotDevicePropertyMappingService iotDevicePropertyMappingService;
     
     @Resource
     private IotDeviceShadowService iotDeviceShadowService;
@@ -104,6 +108,12 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
     
     @Resource
     private IotDeviceDriverRelService iotDeviceDriverRelService;
+
+    @Resource
+    private IotProductPropertyMappingService productPropertyMappingService;
+    
+    @Resource
+    private IotProductAddressConfigService productAddressConfigService;
 
     @Resource
     private vip.xiaonuo.iot.modular.northbound.service.NorthboundPushService northboundPushService;
@@ -156,15 +166,38 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
         IotDevice iotDevice = BeanUtil.toBean(iotDeviceAddParam, IotDevice.class);
         
         // 自动填充产品协议类型
-        if (ObjectUtil.isNotEmpty(iotDevice.getProductId())) {
-            IotProduct product = iotProductService.getById(iotDevice.getProductId());
+        String productId = iotDevice.getProductId();
+        if (ObjectUtil.isNotEmpty(productId)) {
+            IotProduct product = iotProductService.getById(productId);
             if (product != null) {
                 iotDevice.setProtocolType(product.getProtocolType());
             }
         }
         
+        // 保存设备
         this.save(iotDevice);
-        return iotDevice.getId();
+        String deviceId = iotDevice.getId();
+        
+        // 继承产品配置：将产品的属性映射和地址配置复制到设备
+        if (ObjectUtil.isNotEmpty(productId)) {
+            try {
+                // 1. 复制产品属性映射到设备
+                int mappingCount = productPropertyMappingService.copyToDevice(productId, deviceId);
+                
+                // 2. 对每个映射，复制对应的地址配置
+                // 注：这里需要建立产品映射ID和设备映射ID的对应关系
+                // 由于copyToDevice内部已经处理了这个逻辑，此处不需要额外操作
+                
+                if (mappingCount > 0) {
+                    log.info("设备{}成功继承产品{}的{}个属性配置", deviceId, productId, mappingCount);
+                }
+            } catch (Exception e) {
+                log.error("设备{}继承产品{}配置失败", deviceId, productId, e);
+                // 继承失败不影响设备创建，只记录日志
+            }
+        }
+        
+        return deviceId;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -339,8 +372,8 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 			throw new CommonException("设备关联的产品不存在");
 		}
 		
-		// 获取设备的寄存器映射（优先设备级）
-		Map<String, IotDeviceRegisterMapping> mappingMap = iotDeviceRegisterMappingService.getDeviceRegisterMappingMap(device.getId());
+		// 获取设备的属性映射（优先设备级）
+		Map<String, Map<String, Object>> mappingMap = iotDevicePropertyMappingService.getDevicePropertyMappingMap(device.getId());
 		
 		// 收集所有需要写入的寄存器：<地址, 值>
 		Map<Integer, Integer> registerWrites = new TreeMap<>();
@@ -352,15 +385,25 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 			Object value = entry.getValue();
 			
 			// 从映射表中查找对应的寄存器地址
-			IotDeviceRegisterMapping mapping = mappingMap.get(identifier);
+			Map<String, Object> mappingInfo = mappingMap.get(identifier);
 			
-			if (mapping == null) {
+			if (mappingInfo == null) {
 				failedProperties.add(identifier);
 				continue;
 			}
 			
 			// 获取寄存器地址
-			Integer registerAddress = mapping.getRegisterAddress();
+			Integer registerAddress = null;
+			IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+			if (config != null && config.getExtConfig() != null) {
+				try {
+					cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+					registerAddress = extConfig.getInt("registerAddress");
+				} catch (Exception e) {
+					// 忽略
+				}
+			}
+			
 			if (registerAddress == null) {
 				failedProperties.add(identifier);
 				continue;
@@ -526,12 +569,12 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 	 * 处理Modbus设备服务调用
 	 */
 	private void handleModbusService(IotDevice device, String serviceId, Map<String, Object> params) {
-		// 获取设备的寄存器映射配置
-		Map<String, IotDeviceRegisterMapping> mappingMap = 
-			iotDeviceRegisterMappingService.getDeviceRegisterMappingMap(device.getId());
+		// 获取设备的属性映射配置
+		Map<String, Map<String, Object>> mappingMap = 
+			iotDevicePropertyMappingService.getDevicePropertyMappingMap(device.getId());
 		
 		if (mappingMap.isEmpty()) {
-			throw new CommonException("设备未配置寄存器映射");
+			throw new CommonException("设备未配置属性映射");
 		}
 		
 		// 查询设备驱动关联（获取设备级配置）
@@ -562,7 +605,7 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 	 * 设置单个输出
 	 * params: {output: 1, value: true}
 	 */
-	private void handleSetOutput(IotDevice device, Map<String, IotDeviceRegisterMapping> mappingMap, 
+	private void handleSetOutput(IotDevice device, Map<String, Map<String, Object>> mappingMap, 
 								 Map<String, Object> params) {
 		if (!params.containsKey("output") || !params.containsKey("value")) {
 			throw new CommonException("缺少必要参数: output, value");
@@ -573,20 +616,41 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 		
 		// 找到对应的DO寄存器映射
 		String identifier = "DO" + output;
-		IotDeviceRegisterMapping mapping = mappingMap.get(identifier);
+		Map<String, Object> mappingInfo = mappingMap.get(identifier);
 		
-		if (mapping == null) {
-			throw new CommonException("输出 {} 未配置寄存器映射", identifier);
+		if (mappingInfo == null) {
+			throw new CommonException("输出 {} 未配置属性映射", identifier);
 		}
 		
-		// 根据功能码判断寄存器类型
-		String functionCode = mapping.getFunctionCode();
+		// 从地址配置中获取信息
+		IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+		if (config == null) {
+			throw new CommonException("输出 {} 未配置地址", identifier);
+		}
+		
+		// 从extConfig中获取functionCode和registerAddress
+		String functionCode = null;
+		Integer registerAddress = null;
+		if (config.getExtConfig() != null) {
+			try {
+				cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+				functionCode = extConfig.getStr("functionCode");
+				registerAddress = extConfig.getInt("registerAddress");
+			} catch (Exception e) {
+				// 忽略
+			}
+		}
+		
+		if (registerAddress == null) {
+			throw new CommonException("寄存器地址无效");
+		}
+			
 		if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
 			// 线圈类型：写单个线圈（0x05）
-			modbusTcpClient.writeSingleCoil(device, mapping.getRegisterAddress(), value);
+			modbusTcpClient.writeSingleCoil(device, registerAddress, value);
 		} else {
 			// 寄存器类型：写单个寄存器（0x06）
-			modbusTcpClient.writeSingleRegister(device, mapping.getRegisterAddress(), value ? 1 : 0);
+			modbusTcpClient.writeSingleRegister(device, registerAddress, value ? 1 : 0);
 		}
 	}
 
@@ -594,7 +658,7 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 	 * 批量设置输出
 	 * params: {outputs: [1,2,3,4,5,6,7,8], value: true}
 	 */
-	private void handleSetBatchOutputs(IotDevice device, Map<String, IotDeviceRegisterMapping> mappingMap,
+	private void handleSetBatchOutputs(IotDevice device, Map<String, Map<String, Object>> mappingMap,
 									   Map<String, Object> params) {
 		if (!params.containsKey("outputs") || !params.containsKey("value")) {
 			throw new CommonException("缺少必要参数: outputs, value");
@@ -611,20 +675,36 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 		// 收集所有需要写入的寄存器
 		for (Integer output : outputs) {
 			String identifier = "DO" + output;
-			IotDeviceRegisterMapping mapping = mappingMap.get(identifier);
+			Map<String, Object> mappingInfo = mappingMap.get(identifier);
 			
-			if (mapping == null) {
+			if (mappingInfo == null) {
 				continue;
 			}
 			
-			// 根据功能码判断寄存器类型
-			String functionCode = mapping.getFunctionCode();
-			if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
-				// 线圈类型
-				coilWrites.put(mapping.getRegisterAddress(), value);
-			} else {
-				// 寄存器类型
-				registerWrites.put(mapping.getRegisterAddress(), value ? 1 : 0);
+			// 从地址配置中获取信息
+			IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+			if (config == null || config.getExtConfig() == null) {
+				continue;
+			}
+			
+			try {
+				cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+				String functionCode = extConfig.getStr("functionCode");
+				Integer registerAddress = extConfig.getInt("registerAddress");
+				
+				if (registerAddress == null) {
+					continue;
+				}
+						
+				if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
+					// 线圈类型
+					coilWrites.put(registerAddress, value);
+				} else {
+					// 寄存器类型
+					registerWrites.put(registerAddress, value ? 1 : 0);
+				}
+			} catch (Exception e) {
+				// 忽略
 			}
 		}
 		
@@ -674,29 +754,45 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 	 */
 	private void handleToggleOutputs(IotDevice device, 
 									 vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel driverRel,
-									 Map<String, IotDeviceRegisterMapping> mappingMap,
+									 Map<String, Map<String, Object>> mappingMap,
 									 Map<String, Object> params) {
 		// 收集所有DO属性并读取当前值
 		TreeMap<Integer, Boolean> coilReads = new TreeMap<>();
 		TreeMap<Integer, Integer> registerReads = new TreeMap<>();
 		
-		for (Map.Entry<String, IotDeviceRegisterMapping> entry : mappingMap.entrySet()) {
+		for (Map.Entry<String, Map<String, Object>> entry : mappingMap.entrySet()) {
 			String identifier = entry.getKey();
-			IotDeviceRegisterMapping mapping = entry.getValue();
+			Map<String, Object> mappingInfo = entry.getValue();
 			
 			// 只处理DO开头的属性
 			if (!identifier.startsWith("DO")) {
 				continue;
 			}
 			
-			// 根据功能码判断寄存器类型
-			String functionCode = mapping.getFunctionCode();
-			if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
-				// 线圈类型
-				coilReads.put(mapping.getRegisterAddress(), false); // 占位
-			} else {
-				// 寄存器类型
-				registerReads.put(mapping.getRegisterAddress(), 0); // 占位
+			// 从地址配置中获取信息
+			IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+			if (config == null || config.getExtConfig() == null) {
+				continue;
+			}
+			
+			try {
+				cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+				String functionCode = extConfig.getStr("functionCode");
+				Integer registerAddress = extConfig.getInt("registerAddress");
+				
+				if (registerAddress == null) {
+					continue;
+				}
+						
+				if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
+					// 线圈类型
+					coilReads.put(registerAddress, false); // 占位
+				} else {
+					// 寄存器类型
+					registerReads.put(registerAddress, 0); // 占位
+				}
+			} catch (Exception e) {
+				// 忽略
 			}
 		}
 		
@@ -742,9 +838,9 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 		TreeMap<Integer, Boolean> coilWrites = new TreeMap<>();
 		TreeMap<Integer, Integer> registerWrites = new TreeMap<>();
 		
-		for (Map.Entry<String, IotDeviceRegisterMapping> entry : mappingMap.entrySet()) {
+		for (Map.Entry<String, Map<String, Object>> entry : mappingMap.entrySet()) {
 			String identifier = entry.getKey();
-			IotDeviceRegisterMapping mapping = entry.getValue();
+			Map<String, Object> mappingInfo = entry.getValue();
 			
 			// 只处理DO开头的属性
 			if (!identifier.startsWith("DO")) {
@@ -765,14 +861,30 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 			// 反转状态
 			boolean newState = !currentState;
 			
-			// 根据功能码判断寄存器类型
-			String functionCode = mapping.getFunctionCode();
-			if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
-				// 线圈类型
-				coilWrites.put(mapping.getRegisterAddress(), newState);
-			} else {
-				// 寄存器类型
-				registerWrites.put(mapping.getRegisterAddress(), newState ? 1 : 0);
+			// 从地址配置中获取信息
+			IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+			if (config == null || config.getExtConfig() == null) {
+				continue;
+			}
+			
+			try {
+				cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+				String functionCode = extConfig.getStr("functionCode");
+				Integer registerAddress = extConfig.getInt("registerAddress");
+				
+				if (registerAddress == null) {
+					continue;
+				}
+						
+				if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {
+					// 线圈类型
+					coilWrites.put(registerAddress, newState);
+				} else {
+					// 寄存器类型
+					registerWrites.put(registerAddress, newState ? 1 : 0);
+				}
+			} catch (Exception e) {
+				// 忽略
 			}
 		}
 		

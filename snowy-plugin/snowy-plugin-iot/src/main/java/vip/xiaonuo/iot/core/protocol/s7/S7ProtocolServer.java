@@ -16,9 +16,12 @@ import vip.xiaonuo.iot.core.protocol.address.AddressConfigTemplate;
 import vip.xiaonuo.iot.core.protocol.address.AddressConfigTemplate.ConfigField;
 import vip.xiaonuo.iot.core.protocol.address.AddressConfigTemplate.Option;
 import vip.xiaonuo.iot.modular.device.entity.IotDevice;
+import vip.xiaonuo.iot.modular.device.entity.IotDevicePropertyMapping;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.mapper.IotDevicePropertyMappingMapper;
+import vip.xiaonuo.iot.modular.device.mapper.IotDeviceAddressConfigMapper;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
 
 import java.util.Arrays;
 import java.util.List;
@@ -48,6 +51,12 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
     
     @Resource
     private DeviceDataHandler deviceDataHandler;
+    
+    @Resource
+    private IotDevicePropertyMappingMapper propertyMappingMapper;
+    
+    @Resource
+    private IotDeviceAddressConfigMapper addressConfigMapper;
 
     /**
      * 定时采集任务执行器
@@ -119,10 +128,9 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
      *
      * @param device           设备信息
      * @param driverRel        驱动关联关系
-     * @param registerMappings 寄存器映射列表
      */
     public void addDevice(IotDevice device, IotDeviceDriverRel driverRel, 
-                         List<IotDeviceRegisterMapping> registerMappings) {
+                         List<IotDeviceAddressConfig> addressConfigs) {
         try {
             String deviceId = device.getId();
             
@@ -170,9 +178,9 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             // 获取采集间隔（默认5秒）
             int interval = config.getInt("interval", 5000);
 
-            // 启动定时采集任务
+            // 启动定时采集任务（使用新版本采集方法）
             ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(
-                    () -> collectData(device, registerMappings),
+                    () -> collectDataV2(device),  // 使用新版本采集方法
                     0, // 初始延迟
                     interval, // 采集间隔
                     TimeUnit.MILLISECONDS
@@ -212,53 +220,80 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
     }
 
     /**
-     * 采集设备数据
-     *
-     * @param device           设备
-     * @param registerMappings 寄存器映射列表
+     * 采集设备数据（新版本 - 使用property_mapping + address_config表结构）
+     * @param device 设备信息
      */
-    private void collectData(IotDevice device, List<IotDeviceRegisterMapping> registerMappings) {
+    private void collectDataV2(IotDevice device) {
         String deviceId = device.getId();
         
-        // 调试日志：记录采集任务执行
-        log.info("S7开始采集数据 - DeviceKey: {}, 点位数量: {}", device.getDeviceKey(), registerMappings.size());
-        
-        // 如果没有配置点位，直接返回
-        if (registerMappings == null || registerMappings.isEmpty()) {
-            log.warn("S7设备未配置点位映射，跳过采集 - DeviceKey: {}", device.getDeviceKey());
-            return;
-        }
-        
         try {
+            // 1. 查询设备的所有启用的属性映射
+            List<IotDevicePropertyMapping> propertyMappings = propertyMappingMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
+                    .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
+                    .eq(IotDevicePropertyMapping::getEnabled, true)
+            );
+            
+            if (propertyMappings.isEmpty()) {
+                log.warn("S7设备未配置属性映射，跳过采集 - DeviceKey: {}", device.getDeviceKey());
+                return;
+            }
+            
+            log.info("S7开始采集数据 - DeviceKey: {}, 属性数量: {}", device.getDeviceKey(), propertyMappings.size());
+            
             JSONObject data = JSONUtil.createObj();
-
-            // 遍历寄存器映射，读取数据
-            for (IotDeviceRegisterMapping mapping : registerMappings) {
-                log.info("S7读取点位 - DeviceKey: {}, Identifier: {}, Address: {}, DataType: {}", 
-                    device.getDeviceKey(), mapping.getIdentifier(), mapping.getRegisterAddress(), mapping.getDataType());
+            
+            // 2. 遍历属性，查询对应的S7地址配置并读取数据
+            for (IotDevicePropertyMapping mapping : propertyMappings) {
                 try {
-                    Object value = readRegister(deviceId, mapping);
-                    if (value != null) {
-                        data.set(mapping.getIdentifier(), value);
-                        log.info("S7读取成功 - DeviceKey: {}, Identifier: {}, Value: {}", 
-                            device.getDeviceKey(), mapping.getIdentifier(), value);
-                    } else {
-                        log.warn("S7读取返回null - DeviceKey: {}, Identifier: {}", 
-                            device.getDeviceKey(), mapping.getIdentifier());
+                    // 查询该属性的S7协议地址配置
+                    IotDeviceAddressConfig addressConfig = addressConfigMapper.selectOne(
+                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
+                            .eq(IotDeviceAddressConfig::getMappingId, mapping.getId())
+                            .eq(IotDeviceAddressConfig::getProtocolType, "S7")
+                            .eq(IotDeviceAddressConfig::getEnabled, true)
+                    );
+                    
+                    if (addressConfig == null) {
+                        log.debug("S7属性未配置地址 - Identifier: {}", mapping.getIdentifier());
+                        continue;
                     }
+                    
+                    // 读取数据
+                    Object value = readAddress(deviceId, addressConfig);
+                    
+                    if (value != null) {
+                        // 应用数值转换
+                        if (value instanceof Number && addressConfig.getValueMultiplier() != null) {
+                            double numValue = ((Number) value).doubleValue();
+                            numValue = numValue * addressConfig.getValueMultiplier().doubleValue();
+                            if (addressConfig.getValueOffset() != null) {
+                                numValue += addressConfig.getValueOffset().doubleValue();
+                            }
+                            value = numValue;
+                        }
+                        
+                        // 使用物模型属性标识符作为key
+                        data.set(mapping.getIdentifier(), value);
+                        
+                        // 更新成功时间
+                        addressConfig.setLastSuccessTime(new java.util.Date());
+                        addressConfig.setLastErrorMessage(null);
+                        addressConfigMapper.updateById(addressConfig);
+                        
+                        log.debug("S7读取成功 - Identifier: {}, Value: {}", mapping.getIdentifier(), value);
+                    }
+                    
                 } catch (Exception e) {
-                    log.error("S7读取寄存器失败 - DeviceId: {}, Property: {}, 错误: {}", 
-                            deviceId, mapping.getIdentifier(), e.getMessage());
-                    // 读取失败，抛出异常让上层处理
+                    log.error("S7读取属性失败 - Identifier: {}, Error: {}", mapping.getIdentifier(), e.getMessage());
                     throw e;
                 }
             }
-
-            // 发送数据到消息服务
+            
+            // 3. 发送数据到消息服务
             if (!data.isEmpty()) {
-                // 构建标准Topic格式: /{productId}/{deviceKey}/property/post
                 String topic = String.format("/%s/%s/property/post", 
-                        device.getProductId(), device.getDeviceKey());
+                    device.getProductId(), device.getDeviceKey());
                 log.info("S7采集数据成功 - DeviceKey: {}, 数据: {}", device.getDeviceKey(), data.toString());
                 deviceMessageService.handleDeviceMessage(topic, data.toString());
             }
@@ -266,7 +301,7 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             // 采集成功，重置失败计数
             deviceFailCounts.put(deviceId, 0);
             
-            // 如果设备之前是离线，更新为在线
+            // 更新设备状态为在线
             if ("OFFLINE".equals(device.getDeviceStatus())) {
                 device.setDeviceStatus("ONLINE");
                 device.setLastOnlineTime(new java.util.Date());
@@ -274,14 +309,14 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
                 deviceDataHandler.pushDeviceStatus(device, "ONLINE");
                 log.info("S7设备重连成功 - DeviceKey: {}", device.getDeviceKey());
             }
-
+            
         } catch (Exception e) {
             // 采集失败，增加失败计数
             int failCount = deviceFailCounts.getOrDefault(deviceId, 0) + 1;
             deviceFailCounts.put(deviceId, failCount);
             
             log.debug("S7采集数据失败 - DeviceId: {}, 连续失败: {}/{}次", 
-                    deviceId, failCount, MAX_FAIL_COUNT);
+                deviceId, failCount, MAX_FAIL_COUNT);
             
             // 连续失败达到阈值，判定为离线
             if (failCount >= MAX_FAIL_COUNT && "ONLINE".equals(device.getDeviceStatus())) {
@@ -292,54 +327,36 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             }
         }
     }
-
+    
     /**
-     * 读取寄存器数据
-     *
-     * @param deviceId 设备ID
-     * @param mapping  寄存器映射
-     * @return 读取的值
+     * 读取地址数据（基于新的地址配置表）
      */
-    private Object readRegister(String deviceId, IotDeviceRegisterMapping mapping) {
-        // 优先从extJson中读取address字段（新架构）
-        String addressStr = null;
-        if (StrUtil.isNotBlank(mapping.getExtJson())) {
-            try {
-                JSONObject extJson = JSONUtil.parseObj(mapping.getExtJson());
-                addressStr = extJson.getStr("address");
-            } catch (Exception e) {
-                log.warn("S7解析extJson失败 - DeviceId: {}, Identifier: {}", deviceId, mapping.getIdentifier(), e);
-            }
-        }
+    private Object readAddress(String deviceId, IotDeviceAddressConfig config) {
+        String addressStr = config.getDeviceAddress();
+        String dataType = config.getDataType();
         
-        // Fallback: 如果 extJson 中没有 address，使用 identifier（兼容旧数据）
-        if (StrUtil.isBlank(addressStr)) {
-            addressStr = mapping.getIdentifier();
-        }
-        
-        // 解析地址格式（例如：DB1.DBW100, MW10, M0.0）
         // DB块：DBx.DBWy, DBx.DBDy, DBx.DBBy, DBx.DBXy.z
         if (addressStr.startsWith("DB")) {
-            return readDBArea(deviceId, addressStr, mapping.getDataType());
+            return readDBArea(deviceId, addressStr, dataType);
         }
         
         // 对于M区和V区，需要registerAddress
-        Integer address = mapping.getRegisterAddress();
+        Integer address = config.getRegisterAddress();
         if (address == null) {
-            log.warn("S7点位缺少registerAddress - DeviceId: {}, Identifier: {}", deviceId, addressStr);
+            log.warn("S7点位缺少registerAddress - DeviceId: {}, Address: {}", deviceId, addressStr);
             return null;
         }
         
-        // M区：MWx, MDx, MBx, Mx.y
+        // M区
         if (addressStr.startsWith("M")) {
-            return readMArea(deviceId, address, mapping.getDataType());
+            return readMArea(deviceId, address, dataType);
         }
-        // V区：VWx, VDx, VBx, Vx.y (S7-200)
+        // V区
         else if (addressStr.startsWith("V")) {
-            return readVArea(deviceId, address, mapping.getDataType());
+            return readVArea(deviceId, address, dataType);
         }
-
-        log.warn("S7不支持的地址格式 - DeviceId: {}, Identifier: {}", deviceId, addressStr);
+        
+        log.warn("S7不支持的地址格式 - DeviceId: {}, Address: {}", deviceId, addressStr);
         return null;
     }
 

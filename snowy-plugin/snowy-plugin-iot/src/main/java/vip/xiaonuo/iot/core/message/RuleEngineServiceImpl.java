@@ -32,8 +32,8 @@ import vip.xiaonuo.iot.modular.device.entity.IotDevice;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 import vip.xiaonuo.iot.modular.devicedriverrel.service.IotDeviceDriverRelService;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
-import vip.xiaonuo.iot.modular.register.service.IotDeviceRegisterMappingService;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 import vip.xiaonuo.iot.modular.rule.entity.IotRule;
 import vip.xiaonuo.iot.modular.rule.service.IotRuleService;
 import vip.xiaonuo.iot.modular.rulelog.entity.IotRuleLog;
@@ -74,7 +74,7 @@ public class RuleEngineServiceImpl implements RuleEngineService {
     private Modbus4jTcpClient modbus4jTcpClient;
 
     @Resource
-    private IotDeviceRegisterMappingService iotDeviceRegisterMappingService;
+    private IotDevicePropertyMappingService iotDevicePropertyMappingService;
     
     @Resource
     private IotDeviceDriverRelService iotDeviceDriverRelService;
@@ -644,16 +644,16 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             switch (command) {
                 case "setOutput":
                     // 设置单个输出
-                    // output参数可以是：整数(1-8) 或 identifier字符串("DO1"-"DO8")
+                    // output参数支持两种格式：整数(1-8) 或 identifier字符串("DO1"-"DO8")
                     Object outputValue = params.get("output");
                     String identifier;
                     
                     if (outputValue instanceof Integer) {
-                        // 兼容旧格式：整数转identifier (1 -> "DO1")
+                        // 整数格式：转identifier (1 -> "DO1")
                         int num = (Integer) outputValue;
                         identifier = "DO" + num;
                     } else if (outputValue instanceof String) {
-                        // 新格式：直接使用identifier
+                        // 字符串格式：直接使用identifier
                         identifier = (String) outputValue;
                     } else {
                         throw new RuntimeException("output参数格式错误: " + outputValue);
@@ -661,15 +661,27 @@ public class RuleEngineServiceImpl implements RuleEngineService {
                     
                     boolean value = params.getBool("value");
                     
-                    // 从寄存器映射中查找对应的寄存器地址
-                    Map<String, IotDeviceRegisterMapping> mappingMap = iotDeviceRegisterMappingService.getDeviceRegisterMappingMap(device.getId());
-                    IotDeviceRegisterMapping mapping = mappingMap.get(identifier);
+                    // 从属性映射中查找对应的寄存器地址
+                    Map<String, Map<String, Object>> mappingMap = iotDevicePropertyMappingService.getDevicePropertyMappingMap(device.getId());
+                    Map<String, Object> mappingInfo = mappingMap.get(identifier);
                     
-                    if (mapping == null || mapping.getRegisterAddress() == null) {
+                    Integer registerAddress = null;
+                    if (mappingInfo != null) {
+                        IotDeviceAddressConfig config = (IotDeviceAddressConfig) mappingInfo.get("addressConfig");
+                        if (config != null && config.getExtConfig() != null) {
+                            try {
+                                cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+                                registerAddress = extConfig.getInt("registerAddress");
+                            } catch (Exception e) {
+                                log.warn("解析registerAddress失败: {}", config.getExtConfig());
+                            }
+                        }
+                    }
+                    
+                    if (registerAddress == null) {
                         throw new RuntimeException("属性 " + identifier + " 未配置寄存器映射");
                     }
                     
-                    int registerAddress = mapping.getRegisterAddress();
                     modbus4jTcpClient.writeSingleRegister(device, registerAddress, value ? 1 : 0);
                     log.info("Modbus设备输出控制 - {} (寄存器地址{}) -> {}", identifier, registerAddress, value ? "打开" : "关闭");
                     break;

@@ -256,7 +256,7 @@ public class DriverConfigUtil {
     }
     
     /**
-     * 从设备扩展配置中获取主机地址（兼容旧版本调用）
+     * 从设备扩展配置中获取主机地址（简化调用方式）
      * 
      * @param device 设备
      * @return 主机地址，可能为null
@@ -302,7 +302,7 @@ public class DriverConfigUtil {
     }
     
     /**
-     * 从设备扩展配置中获取端口（兼容旧版本调用）
+     * 从设备扩展配置中获取端口（简化调用方式）
      * 
      * @param device 设备
      * @return 端口，默认502

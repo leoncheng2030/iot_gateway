@@ -17,8 +17,8 @@ import vip.xiaonuo.iot.modular.devicedriver.entity.IotDeviceDriver;
 import vip.xiaonuo.iot.modular.devicedriver.service.IotDeviceDriverService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 import vip.xiaonuo.iot.modular.devicedriverrel.service.IotDeviceDriverRelService;
-import vip.xiaonuo.iot.modular.register.entity.IotDeviceRegisterMapping;
-import vip.xiaonuo.iot.modular.register.service.IotDeviceRegisterMappingService;
+import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -53,7 +53,7 @@ public class ModbusPollingTimerTask implements CommonTimerTaskRunner {
     private Modbus4jTcpClient modbusTcpClient;
 
     @Resource
-    private IotDeviceRegisterMappingService iotDeviceRegisterMappingService;
+    private IotDevicePropertyMappingService iotDevicePropertyMappingService;
     
     @Resource
     private DeviceDataHandler deviceDataHandler;
@@ -220,17 +220,28 @@ public class ModbusPollingTimerTask implements CommonTimerTaskRunner {
      */
     private void pollDevice(IotDevice device, IotDeviceDriverRel driverRel) {
         try {
-            // 获取设备的寄存器映射（优先设备级，无则使用产品级）
-            List<IotDeviceRegisterMapping> mappings = iotDeviceRegisterMappingService.getDeviceRegisterMappings(device.getId());
+            // 获取设备的属性映射（优先设备级，无则使用产品级）
+            List<Map<String, Object>> mappings = iotDevicePropertyMappingService.getDevicePropertyMappingsWithAddress(device.getId());
             
             // 按功能码分组寄存器地址
             Map<String, List<Integer>> functionCodeGroups = new HashMap<>();
             
-            for (IotDeviceRegisterMapping mapping : mappings) {
-                if (mapping.getEnabled() && mapping.getRegisterAddress() != null && StrUtil.isNotBlank(mapping.getFunctionCode())) {
-                    functionCodeGroups
-                        .computeIfAbsent(mapping.getFunctionCode(), k -> new ArrayList<>())
-                        .add(mapping.getRegisterAddress());
+            for (Map<String, Object> item : mappings) {
+                IotDeviceAddressConfig config = (IotDeviceAddressConfig) item.get("addressConfig");
+                if (config != null && config.getEnabled() && config.getExtConfig() != null) {
+                    try {
+                        cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
+                        Integer registerAddress = extConfig.getInt("registerAddress");
+                        String functionCode = extConfig.getStr("functionCode");
+                        
+                        if (registerAddress != null && cn.hutool.core.util.StrUtil.isNotBlank(functionCode)) {
+                            functionCodeGroups
+                                .computeIfAbsent(functionCode, k -> new ArrayList<>())
+                                .add(registerAddress);
+                        }
+                    } catch (Exception e) {
+                        log.warn("解析地址配置失败: {}", config.getExtConfig());
+                    }
                 }
             }
             

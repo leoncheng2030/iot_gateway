@@ -85,7 +85,7 @@
 	import { message } from 'ant-design-vue'
 	import iotDeviceShadowApi from '@/api/iot/iotDeviceShadowApi'
 	import iotThingModelApi from '@/api/iot/iotThingModelApi'
-	import iotDeviceRegisterApi from '@/api/iot/iotDeviceRegisterApi'
+	import iotDevicePropertyMappingApi from '@/api/iot/iotDevicePropertyMappingApi'
 	import { ModelType, SSEMessageType } from '@/utils/iotConstants'
 
 	// 导入组件
@@ -125,6 +125,21 @@
 	const mappingLoading = ref(false)
 	const propertyList = ref([])
 	const useDeviceLevelMapping = ref(false) // 是否使用设备级配置
+
+	// 物模型valueType到协议dataType的映射
+	const getDataTypeFromValueType = (valueType) => {
+		const mapping = {
+			'int32': 'int',
+			'int64': 'int',
+			'float': 'float',
+			'double': 'double',
+			'bool': 'bool',
+			'text': 'string',
+			'enum': 'int',
+			'date': 'string'
+		}
+		return mapping[valueType] || 'int'
+	}
 
 	// 判断是否需要寄存器映射（支持Modbus、S7等协议）
 	const isModbusDevice = computed(() => {
@@ -248,7 +263,7 @@
 		mappingLoading.value = true
 		try {
 			// 1. 先检查是否有设备级配置
-			const deviceMappings = await iotDeviceRegisterApi.iotDeviceRegisterList({
+			const deviceMappings = await iotDevicePropertyMappingApi.iotDevicePropertyMappingList({
 				deviceId: deviceData.value.id
 			})
 
@@ -281,7 +296,8 @@
 						valueSpecs: thingModel.valueSpecs,
 						registerAddress: item.registerAddress,
 						functionCode: item.functionCode,
-						dataType: item.dataType,
+						// 自动推导：如果数据库没有dataType，从 valueType 推导
+						dataType: item.dataType || getDataTypeFromValueType(thingModel.valueType),
 						deviceMappingId: item.id,
 						extJson: thingModel.extJson
 					}
@@ -335,7 +351,8 @@
 					...item,
 					registerAddress,
 					functionCode,
-					dataType
+					// 自动推导：如果extJson没有dataType，从 valueType 推导
+					dataType: dataType || getDataTypeFromValueType(item.valueType)
 				}
 			})
 		} finally {
@@ -373,7 +390,8 @@
 					...item,
 					registerAddress,
 					functionCode,
-					dataType
+					// 自动推导：如果extJson没有dataType，从 valueType 推导
+					dataType: dataType || getDataTypeFromValueType(item.valueType)
 				}
 			})
 			
@@ -440,7 +458,7 @@
 				return
 			}
 
-			await iotDeviceRegisterApi.iotDeviceRegisterBatchSave({
+			await iotDevicePropertyMappingApi.iotDevicePropertyMappingBatchSave({
 				deviceId: deviceData.value.id,
 				mappings: mappings
 			})
@@ -455,7 +473,7 @@
 	// 清除设备级映射
 	const deleteDeviceLevelMapping = async () => {
 		try {
-			await iotDeviceRegisterApi.iotDeviceRegisterDelete({
+			await iotDevicePropertyMappingApi.iotDevicePropertyMappingClear({
 				deviceId: deviceData.value.id
 			})
 
@@ -470,22 +488,22 @@
 	// 注册SSE消息处理器
 	const registerSSEHandler = () => {
 		sseMessageHandler.value = (message) => {
-			console.log('🔵 收到SSE消息:', message)
-			console.log('🔵 当前设备详情页是否打开:', open.value)
-			console.log('🔵 当前设备ID:', deviceData.value.id)
+			// console.log('🔵 收到SSE消息:', message)
+			// console.log('🔵 当前设备详情页是否打开:', open.value)
+			// console.log('🔵 当前设备ID:', deviceData.value.id)
 			
 			if (!open.value || !deviceData.value.id) {
-				console.warn('⚠️ 设备详情页未打开或设备ID不存在，忽略消息')
+				// console.warn('⚠️ 设备详情页未打开或设备ID不存在，忽略消息')
 				return
 			}
 
 			// 只处理当前设备的消息
 			if (message.deviceId !== deviceData.value.id) {
-				console.warn('⚠️ 消息deviceId不匹配 - 消息ID:', message.deviceId, ', 当前ID:', deviceData.value.id)
+				// console.warn('⚠️ 消息deviceId不匹配 - 消息ID:', message.deviceId, ', 当前ID:', deviceData.value.id)
 				return
 			}
 			
-			console.log('✅ 消息deviceId匹配，开始处理')
+			// console.log('✅ 消息deviceId匹配，开始处理')
 
 			const now = new Date().toLocaleTimeString('zh-CN', {
 				hour12: false,
@@ -497,7 +515,7 @@
 
 			switch (message.type) {
 				case SSEMessageType.DEVICE_STATUS:
-					console.log('📊 处理设备状态消息')
+					// console.log('📊 处理设备状态消息')
 					// 设备状态变化，更新基本信息
 					if (message.status) {
 						deviceData.value.deviceStatus = message.status
@@ -516,11 +534,11 @@
 								hour12: false
 							})
 						}
-						console.log('✅ 设备状态已更新:', message.status, '最后在线时间:', deviceData.value.lastOnlineTime)
+						// console.log('✅ 设备状态已更新:', message.status, '最后在线时间:', deviceData.value.lastOnlineTime)
 					}
 					break
 				case SSEMessageType.DEVICE_DATA:
-					console.log('📈 处理设备数据消息')
+					// console.log('📈 处理设备数据消息')
 					// 设备数据上报,刷新实时趋势图表
 					// 如果当前在实时趋势Tab,追加数据到图表
 					if (activeTab.value === 'deviceData' && message.data) {
@@ -537,16 +555,16 @@
 							}
 						})
 						realTimeDataMap.value = newDataMap
-						console.log('✅ 实时数据已更新:', realTimeDataMap.value)
+						// console.log('✅ 实时数据已更新:', realTimeDataMap.value)
 					}
 					break
 				case SSEMessageType.DEVICE_SHADOW:
-					console.log('🌑 处理设备影子消息 - reported:', message.reported)
+					// console.log('🌑 处理设备影子消息 - reported:', message.reported)
 					// 设备影子变化,直接使用SSE消息更新实时数据
 					if (message.reported) {
 						try {
 							const reportedData = JSON.parse(message.reported)
-							console.log('🌑 解析后的影子数据:', reportedData)
+							// console.log('🌑 解析后的影子数据:', reportedData)
 							// 使用Vue 3的响应式API强制触发更新
 							const newDataMap = { ...realTimeDataMap.value }
 							Object.keys(reportedData).forEach((key) => {
@@ -556,14 +574,14 @@
 								}
 							})
 							realTimeDataMap.value = newDataMap
-							console.log('✅ 设备影子数据已更新到realTimeDataMap:', realTimeDataMap.value)
+							// console.log('✅ 设备影子数据已更新到realTimeDataMap:', realTimeDataMap.value)
 						} catch (e) {
 							console.error('❌ 解析设备影子数据失败:', e)
 						}
 					}
 					break
 				case SSEMessageType.DEVICE_EVENT:
-					console.log('📢 处理设备事件消息')
+					// console.log('📢 处理设备事件消息')
 					// 设备事件上报
 					// 添加到事件列表（最多保存50条）
 					if (message.eventType) {
@@ -589,14 +607,14 @@
 						if (recentEvents.value.length > 50) {
 							recentEvents.value = recentEvents.value.slice(0, 50)
 						}
-						console.log('✅ 设备事件已添加')
+						// console.log('✅ 设备事件已添加')
 					}
 					break
 			}
 		}
 		// 存储到全局,供父组件调用
 		window.__deviceDetailSSEHandler__ = sseMessageHandler.value
-		console.log('✅ SSE消息处理器已注册')
+		// console.log('✅ SSE消息处理器已注册')
 	}
 
 	// 注销SSE消息处理器
