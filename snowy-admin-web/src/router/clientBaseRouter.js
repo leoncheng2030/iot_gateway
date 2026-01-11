@@ -8,49 +8,8 @@
  *	5.不可二次分发开源参与同类竞品，如有想法可联系团队xiaonuobase@qq.com商议合作。
  *	6.若您的项目无法满足以上几点，需要更多功能代码，获取Snowy商业授权许可，请在官网购买授权，地址为 https://www.xiaonuo.vip
  */
-// 导入扩展路由
-import clientExpRouter from '@/router/clientExpRouter'
-import tool from '@/utils/tool'
 
-const ClientLogin = () => import('@/views/auth/client/login/login.vue')
-const ClientFindPwd = () => import('@/views/auth/client/findPwd/index.vue')
-const ClientRegister = () => import('@/views/auth/client/register/index.vue')
-const ClientFrontIndex = () => import('@/views/front/index.vue')
-
-// 前台基础路由
-const routes = [
-	{
-		path: '/front/client/login',
-		component: ClientLogin,
-		meta: {
-			title: '前台登录'
-		}
-	},
-	{
-		path: '/front/client/findPwd',
-		component: ClientFindPwd,
-		meta: {
-			title: '找回密码'
-		}
-	},
-	{
-		path: '/front/client/register',
-		component: ClientRegister,
-		meta: {
-			title: '用户注册'
-		}
-	},
-	{
-		path: '/front/client/index',
-		component: ClientFrontIndex,
-		meta: {
-			title: '个人主页'
-		}
-	}
-]
-
-// 开放路由列表
-const clientOpenRouter = ['/front/client/login', '/front/client/findPwd', '/front/client/register']
+// C端路由已禁用（WQS IoT Gateway为B端管理系统，不需要C端功能）
 
 /**
  * 验证C端路由访问权限
@@ -58,27 +17,15 @@ const clientOpenRouter = ['/front/client/login', '/front/client/findPwd', '/fron
  * @returns {Object} - 返回验证结果，包含是否通过验证和重定向路径
  */
 export const validateClientAccess = (path) => {
-	// 如果不是C端路由，直接返回true
-	if (!path.includes('/front/client/')) {
-		return { valid: true }
-	}
-
-	// 如果是开放路由，直接通过
-	if (clientOpenRouter.includes(path)) {
-		return { valid: true }
-	}
-
-	// 检查是否有客户端token
-	const clientToken = tool.data.get('CLIENT_TOKEN')
-	if (!clientToken) {
+	// C端功能已禁用，所有C端路由均返回无效
+	if (path.includes('/front/client/')) {
 		return {
 			valid: false,
-			redirectPath: '/front/client/login'
+			redirectPath: '/login'
 		}
 	}
 	return { valid: true }
 }
 
-const exportRoutes = [...routes, ...clientExpRouter]
-
-export default exportRoutes
+// 导出空路由数组
+export default []
