@@ -1,11 +1,11 @@
 <div align="center">
-    <h1>IoT Gateway Platform</h1>
+    <h1>WQS IoT Gateway</h1>
     <p>智能物联网网关管理平台</p>
 </div>
 
 ## 平台简介
 
-IoT Gateway Platform 是一款功能强大的智能物联网网关管理平台，致力于为企业提供统一的设备接入、数据采集、协议转换和设备管理解决方案。
+WQS IoT Gateway 是一款功能强大的智能物联网网关管理平台，致力于为企业提供统一的设备接入、数据采集、协议转换和设备管理解决方案。
 
 ### 核心优势
 
