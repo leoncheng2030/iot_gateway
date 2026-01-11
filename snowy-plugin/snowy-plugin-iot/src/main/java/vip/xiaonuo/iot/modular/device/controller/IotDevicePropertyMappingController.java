@@ -4,6 +4,7 @@
 package vip.xiaonuo.iot.modular.device.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -18,10 +19,13 @@ import vip.xiaonuo.iot.modular.device.mapper.IotDeviceAddressConfigMapper;
 import vip.xiaonuo.iot.modular.device.mapper.IotDeviceMapper;
 import vip.xiaonuo.iot.modular.device.mapper.IotDevicePropertyMappingMapper;
 
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +55,7 @@ public class IotDevicePropertyMappingController {
     public CommonResult<List<Map<String, Object>>> list(@PathVariable String deviceId) {
         // 查询属性映射
         List<IotDevicePropertyMapping> mappings = devicePropertyMappingMapper.selectList(
-            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
+            new LambdaQueryWrapper<IotDevicePropertyMapping>()
                 .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
                 .orderByAsc(IotDevicePropertyMapping::getSortCode)
         );
@@ -69,7 +73,7 @@ public class IotDevicePropertyMappingController {
             
             // 查询地址配置
             List<IotDeviceAddressConfig> addressConfigs = deviceAddressConfigMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
+                new LambdaQueryWrapper<IotDeviceAddressConfig>()
                     .eq(IotDeviceAddressConfig::getMappingId, mapping.getId())
             );
             if (!addressConfigs.isEmpty()) {
@@ -82,25 +86,20 @@ public class IotDevicePropertyMappingController {
                 item.put("offset", config.getValueOffset());
                 item.put("byteOrder", config.getByteOrder());
                 
-                // 从extConfig中提取协议特定字段
+                // 通用化处理：自动提取 extConfig 中的所有字段到顶层
+                // 这样新增协议时，前端不需要修改代码
                 if (config.getExtConfig() != null && !config.getExtConfig().isEmpty()) {
                     try {
                         cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
-                        
-                        // Modbus字段
-                        item.put("functionCode", extConfig.getStr("functionCode"));
-                        item.put("bitIndex", extConfig.getInt("bitIndex"));
-                        
-                        // S7字段（同时返回area和storageArea，兼容前后端）
-                        String storageArea = extConfig.getStr("storageArea");
-                        item.put("storageArea", storageArea);  // 后端保存时使用
-                        item.put("area", storageArea);         // 前端显示时使用
-                        item.put("dbNumber", extConfig.getInt("dbNumber"));
-                        item.put("offset", extConfig.getInt("offset"));
-                        item.put("dataTypePrefix", extConfig.getStr("dataTypePrefix"));
-                        
+                        // 将 extConfig 中的所有字段提取到顶层
+                        extConfig.forEach((key, value) -> {
+                            // 避免覆盖已有的顶层字段
+                            if (!item.containsKey(key)) {
+                                item.put(key, value);
+                            }
+                        });
                     } catch (Exception e) {
-                        log.warn("解析extConfig失败: {}", config.getExtConfig());
+                        log.warn("解析 extConfig 失败: {}", config.getExtConfig());
                     }
                 }
             }
@@ -126,20 +125,18 @@ public class IotDevicePropertyMappingController {
         
         // 2. 删除设备原有的所有属性映射和地址配置
         List<IotDevicePropertyMapping> existMappings = devicePropertyMappingMapper.selectList(
-            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
+            new LambdaQueryWrapper<IotDevicePropertyMapping>()
                 .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
         );
         
         if (!existMappings.isEmpty()) {
             List<String> mappingIds = existMappings.stream().map(IotDevicePropertyMapping::getId).collect(Collectors.toList());
             
-            // 删除地址配置
-            for (String mappingId : mappingIds) {
-                deviceAddressConfigMapper.delete(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
-                        .eq(IotDeviceAddressConfig::getMappingId, mappingId)
-                );
-            }
+            // 批量删除地址配置
+            deviceAddressConfigMapper.delete(
+                new LambdaQueryWrapper<IotDeviceAddressConfig>()
+                    .in(IotDeviceAddressConfig::getMappingId, mappingIds)
+            );
             
             // 删除属性映射
             devicePropertyMappingMapper.deleteBatchIds(mappingIds);
@@ -166,9 +163,9 @@ public class IotDevicePropertyMappingController {
                 IotDeviceAddressConfig addressConfig = new IotDeviceAddressConfig();
                 addressConfig.setId(cn.hutool.core.util.IdUtil.getSnowflakeNextIdStr());
                 addressConfig.setMappingId(mappingId);
-                addressConfig.setProtocolType(protocolType); // 从设备获取协议类型
+                addressConfig.setProtocolType(protocolType);
                 
-                // 设置deviceAddress（必填字段，如果null则使用默认值"0"）
+                // 设置deviceAddress（必填字段）
                 String registerAddress = (String) item.get("registerAddress");
                 addressConfig.setDeviceAddress(registerAddress != null && !registerAddress.isEmpty() ? registerAddress : "0");
                 
@@ -178,52 +175,44 @@ public class IotDevicePropertyMappingController {
                 Object scaleFactor = item.get("scaleFactor");
                 addressConfig.setValueMultiplier(scaleFactor != null ? new java.math.BigDecimal(scaleFactor.toString()) : java.math.BigDecimal.ONE);
                 
-                Object offset = item.get("offset");
-                addressConfig.setValueOffset(offset != null ? new java.math.BigDecimal(offset.toString()) : java.math.BigDecimal.ZERO);
+                // valueOffset 默认为 0
+                Object valueOffset = item.get("valueOffset");
+                addressConfig.setValueOffset(valueOffset != null ? new java.math.BigDecimal(valueOffset.toString()) : java.math.BigDecimal.ZERO);
                 
                 addressConfig.setByteOrder((String) item.get("byteOrder"));
                 
-                // 构建extConfig JSON（存储所有协议特定字段）
+                // 构建 extConfig JSON（存储所有协议特定字段）
                 cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.createObj();
                 
-                // 1. 先尝试从xtJson中提取字段（前端可能把S7字段放在extJson中）
-                String extJsonStr = (String) item.get("extJson");
-                if (extJsonStr != null && !extJsonStr.isEmpty()) {
-                    try {
-                        cn.hutool.json.JSONObject frontendExtJson = cn.hutool.json.JSONUtil.parseObj(extJsonStr);
-                        // 将extJson中的所有字段提取到item顶层（便于后续处理）
-                        frontendExtJson.forEach((key, value) -> {
-                            if (!item.containsKey(key)) {
-                                item.put(key, value);
-                            }
-                        });
-                    } catch (Exception e) {
-                        log.warn("解析extJson失败: {}", extJsonStr);
-                    }
-                }
-                
-                // 2. registerAddress作为整数存入extConfig
+                // ⚠️ 重要：registerAddress 必须存入 extConfig，设备控制时需要从这里读取
                 if (registerAddress != null && !registerAddress.isEmpty()) {
                     try {
+                        // 尝试转换为整数（Modbus寄存器地址）
                         extConfig.set("registerAddress", Integer.parseInt(registerAddress));
                     } catch (NumberFormatException e) {
-                        extConfig.set("registerAddress", 0);
+                        // 如果不是纯数字，存储为字符串（其他协议可能需要）
+                        extConfig.set("registerAddress", registerAddress);
                     }
                 }
                 
-                // 3. 存储所有可能的协议特定字段
-                // Modbus字段
-                if (item.get("functionCode") != null) extConfig.set("functionCode", item.get("functionCode"));
-                if (item.get("slaveAddress") != null) extConfig.set("slaveAddress", item.get("slaveAddress"));
-                else if ("MODBUS_TCP".equals(protocolType)) extConfig.set("slaveAddress", 1);
-                if (item.get("bitIndex") != null) extConfig.set("bitIndex", item.get("bitIndex"));
+                // 通用化：自动将所有非标准字段存入 extConfig
+                // 标准字段列表（已经单独处理的字段）
+                Set<String> standardFields = new HashSet<>(Arrays.asList(
+                    "thingModelId", "identifier", "registerAddress", "dataType", 
+                    "scaleFactor", "valueOffset", "byteOrder", "enabled", 
+                    "sortCode", "name", "description", "displayAddress",
+                    "id", "deviceId", "createTime", "updateTime"
+                ));
                 
-                // S7字段（兼容area和storageArea两种字段名）
-                Object area = item.get("area") != null ? item.get("area") : item.get("storageArea");
-                if (area != null) extConfig.set("storageArea", area);
-                if (item.get("dbNumber") != null) extConfig.set("dbNumber", item.get("dbNumber"));
-                if (item.get("offset") != null) extConfig.set("offset", item.get("offset"));
-                if (item.get("dataTypePrefix") != null) extConfig.set("dataTypePrefix", item.get("dataTypePrefix"));
+                // 自动存储所有非标准字段到 extConfig
+                item.forEach((key, value) -> {
+                    if (!standardFields.contains(key) && value != null) {
+                        // registerAddress 已经单独处理过了，不要重复添加
+                        if (!key.equals("registerAddress")) {
+                            extConfig.set(key, value);
+                        }
+                    }
+                });
                 
                 addressConfig.setExtConfig(extConfig.toString());
                 addressConfig.setPollingInterval(0);
@@ -252,13 +241,11 @@ public class IotDevicePropertyMappingController {
     public CommonResult<String> delete(@PathVariable String deviceId, @RequestBody List<String> ids) {
         log.info("删除设备{}的属性映射，ID列表：{}", deviceId, ids);
         
-        // 1. 先删除关联的地址配置（级联删除）
-        for (String mappingId : ids) {
-            deviceAddressConfigMapper.delete(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
-                    .eq(IotDeviceAddressConfig::getMappingId, mappingId)
-            );
-        }
+        // 1. 批量删除关联的地址配置（级联删除）
+        deviceAddressConfigMapper.delete(
+            new LambdaQueryWrapper<IotDeviceAddressConfig>()
+                .in(IotDeviceAddressConfig::getMappingId, ids)
+        );
         
         // 2. 删除属性映射
         devicePropertyMappingMapper.deleteBatchIds(ids);
@@ -276,21 +263,24 @@ public class IotDevicePropertyMappingController {
         
         // 1. 查询所有设备级映射
         List<IotDevicePropertyMapping> mappings = devicePropertyMappingMapper.selectList(
-            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
+            new LambdaQueryWrapper<IotDevicePropertyMapping>()
                 .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
         );
         
-        // 2. 删除关联的地址配置
-        for (IotDevicePropertyMapping mapping : mappings) {
+        // 2. 批量删除关联的地址配置
+        if (!mappings.isEmpty()) {
+            List<String> mappingIds = mappings.stream()
+                .map(IotDevicePropertyMapping::getId)
+                .collect(Collectors.toList());
             deviceAddressConfigMapper.delete(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
-                    .eq(IotDeviceAddressConfig::getMappingId, mapping.getId())
+                new LambdaQueryWrapper<IotDeviceAddressConfig>()
+                    .in(IotDeviceAddressConfig::getMappingId, mappingIds)
             );
         }
         
         // 3. 删除设备的所有属性映射
         devicePropertyMappingMapper.delete(
-            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
+            new LambdaQueryWrapper<IotDevicePropertyMapping>()
                 .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
         );
         

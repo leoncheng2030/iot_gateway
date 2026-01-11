@@ -636,13 +636,21 @@ public class IotDeviceServiceImpl extends ServiceImpl<IotDeviceMapper, IotDevice
 				cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
 				functionCode = extConfig.getStr("functionCode");
 				registerAddress = extConfig.getInt("registerAddress");
+				
+				// 详细日志：帮助排查配置问题
+				log.debug("输出{}的extConfig解析结果: functionCode={}, registerAddress={}, 原始extConfig={}", 
+					identifier, functionCode, registerAddress, config.getExtConfig());
 			} catch (Exception e) {
-				// 忽略
+				log.error("输出{}的extConfig解析失败: {}", identifier, config.getExtConfig(), e);
+				throw new CommonException("输出 {} 的扩展配置格式错误: {}", identifier, e.getMessage());
 			}
+		} else {
+			log.warn("输出{}的extConfig为空", identifier);
 		}
 		
 		if (registerAddress == null) {
-			throw new CommonException("寄存器地址无效");
+			throw new CommonException("输出 {} 未配置寄存器地址(registerAddress)，当前extConfig: {}", 
+				identifier, config.getExtConfig() != null ? config.getExtConfig() : "空");
 		}
 			
 		if ("0x01".equals(functionCode) || "0x05".equals(functionCode) || "0x0F".equals(functionCode)) {

@@ -8,7 +8,7 @@
 						{{ getProtocolName(props.deviceData.protocolType) }}
 					</a-tag>
 				</a-descriptions-item>
-				
+
 				<!-- 根据协议类型动态显示连接信息 -->
 				<template v-if="connectionFields.length > 0">
 					<a-descriptions-item v-for="field in connectionFields" :key="field.key" :label="field.label">
@@ -135,8 +135,10 @@
 
 		// S7协议
 		if (protocol === 'S7' || protocol === 'TCP') {
+			// 优先使用 host，其次是 ip
+			const hostValue = config.host || config.ip || '-'
 			fields.push(
-				{ key: 'host', label: 'PLC地址', value: config.host || '-', copyable: true },
+				{ key: 'host', label: 'PLC地址', value: hostValue, copyable: true },
 				{ key: 'port', label: '端口', value: config.port || 102, tag: true, tagColor: 'blue' },
 				{ key: 'rack', label: '机架号(Rack)', value: config.rack ?? 0, tag: true, tagColor: 'orange' },
 				{ key: 'slot', label: '插槽号(Slot)', value: config.slot ?? 1, tag: true, tagColor: 'orange' },
@@ -152,10 +154,18 @@
 		}
 		// Modbus TCP
 		else if (protocol === 'MODBUS_TCP') {
+			// 优先使用 host，其次是 ip
+			const hostValue = config.host || config.ip || '-'
 			fields.push(
-				{ key: 'host', label: '设备主机地址', value: config.host || '-', copyable: true },
+				{ key: 'host', label: '设备主机地址', value: hostValue, copyable: true },
 				{ key: 'port', label: '通信端口', value: config.port || 502, tag: true, tagColor: 'blue' },
-				{ key: 'slaveAddress', label: 'Modbus从站地址', value: config.slaveAddress || '-', tag: true, tagColor: 'orange' },
+				{
+					key: 'slaveAddress',
+					label: 'Modbus从站地址',
+					value: config.slaveAddress || config.slaveId || '-',
+					tag: true,
+					tagColor: 'orange'
+				},
 				{
 					key: 'status',
 					label: '连接状态',

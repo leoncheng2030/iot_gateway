@@ -225,7 +225,7 @@ public class ModbusTcpDriver extends AbstractDeviceDriver {
 		
 		// 设备级配置：IP地址（必填）
 		DriverConfigField ipField = new DriverConfigField();
-		ipField.setKey("ip");
+		ipField.setKey("host");
 		ipField.setLabel("IP地址");
 		ipField.setType("text");
 		ipField.setLevel("device");

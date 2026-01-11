@@ -244,11 +244,9 @@ public class S7Client {
                 return null;
             }
     
-            // 构建 S7读取请求
+            // 构建S7读取请求
             byte[] request = buildReadRequest(area, dbNumber, start, size);
-            log.info("S7发送读取请求 - DeviceId: {}, Area: 0x{}, DB: {}, Start: {}, Size: {}, 请求字节: {}", 
-                deviceId, Integer.toHexString(area), dbNumber, start, size, bytesToHexString(request));
-    
+                
             // 发送请求
             OutputStream out = socket.getOutputStream();
             out.write(request);
@@ -258,17 +256,12 @@ public class S7Client {
             InputStream in = socket.getInputStream();
             byte[] header = new byte[7];
             int headerRead = in.read(header);
-            log.info("S7接收响应头 - DeviceId: {}, 读取字节: {}, Header: {}", 
-                deviceId, headerRead, bytesToHexString(header));
     
             // 读取PDU数据
             int pduLength = ((header[2] & 0xFF) << 8) | (header[3] & 0xFF);
-            log.info("S7 PDU长度 - DeviceId: {}, Length: {}", deviceId, pduLength);
                 
             byte[] pdu = new byte[pduLength - 7];
             int pduRead = in.read(pdu);
-            log.info("S7接收PDU数据 - DeviceId: {}, 读取字节: {}, PDU: {}", 
-                deviceId, pduRead, bytesToHexString(pdu));
     
             // 提取数据
             // 查找成功标志 0xFF 的位置（跳过握手后格式可能不同）
@@ -281,11 +274,9 @@ public class S7Client {
             }
             
             if (successFlagIndex >= 0 && pdu.length >= successFlagIndex + 4 + size) {
-                log.info("S7找到成功标志 - DeviceId: {}, 位置: {}", deviceId, successFlagIndex);
                 // 数据从成功标志后4字节开始
                 byte[] data = new byte[size];
                 System.arraycopy(pdu, successFlagIndex + 4, data, 0, size);
-                log.info("S7读取成功 - DeviceId: {}, 数据: {}", deviceId, bytesToHexString(data));
                 return data;
             } else {
                 log.error("S7未找到成功标志或数据不足 - DeviceId: {}, successFlagIndex: {}, pduLength: {}", 

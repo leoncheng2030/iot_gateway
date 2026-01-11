@@ -4,6 +4,7 @@
 package vip.xiaonuo.iot.modular.product.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -18,11 +19,16 @@ import vip.xiaonuo.iot.modular.product.entity.IotProduct;
 import vip.xiaonuo.iot.modular.product.service.IotProductAddressConfigService;
 import vip.xiaonuo.iot.modular.product.service.IotProductPropertyMappingService;
 import vip.xiaonuo.iot.modular.product.service.IotProductService;
+import vip.xiaonuo.iot.modular.thingmodel.entity.IotThingModel;
+import vip.xiaonuo.iot.modular.thingmodel.service.IotThingModelService;
 
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +51,9 @@ public class IotProductPropertyMappingController {
     
     @Resource
     private IotProductService productService;
+    
+    @Resource
+    private IotThingModelService thingModelService;
 
     @Operation(summary = "获取产品属性映射列表")
     @SaCheckPermission("/iot/product/detail")
@@ -75,26 +84,26 @@ public class IotProductPropertyMappingController {
                 item.put("scaleFactor", config.getValueMultiplier());
                 item.put("offset", config.getValueOffset());
                 item.put("byteOrder", config.getByteOrder());
-                
-                // 从extConfig中提取协议特定字段
+                                
+                // 通用化处理：自动提取 extConfig 中的所有字段到顶层
+                // 这样新增协议时，前端不需要修改代码
                 if (config.getExtConfig() != null && !config.getExtConfig().isEmpty()) {
                     try {
                         cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.parseObj(config.getExtConfig());
-                                        
-                        // Modbus字段
-                        item.put("functionCode", extConfig.getStr("functionCode"));
-                        item.put("bitIndex", extConfig.getInt("bitIndex"));
-                                        
-                        // S7字段（同时返回area和storageArea，兼容前后端）
-                        String storageArea = extConfig.getStr("storageArea");
-                        item.put("storageArea", storageArea);  // 后端保存时使用
-                        item.put("area", storageArea);         // 前端显示时使用
-                        item.put("dbNumber", extConfig.getInt("dbNumber"));
-                        item.put("offset", extConfig.getInt("offset"));
-                        item.put("dataTypePrefix", extConfig.getStr("dataTypePrefix"));
-                                        
+                        // 将 extConfig 中的所有字段提取到顶层
+                        extConfig.forEach((key, value) -> {
+                            // 避免覆盖已有的顶层字段
+                            if (!item.containsKey(key)) {
+                                // 将 Hutool 的 JSONNull 转换为 Java 的 null，避免 Jackson 序列化错误
+                                if (value instanceof cn.hutool.json.JSONNull) {
+                                    item.put(key, null);
+                                } else {
+                                    item.put(key, value);
+                                }
+                            }
+                        });
                     } catch (Exception e) {
-                        log.warn("解析extConfig失败: {}", config.getExtConfig());
+                        log.warn("解析 extConfig 失败: {}", config.getExtConfig());
                     }
                 }
             }
@@ -121,13 +130,11 @@ public class IotProductPropertyMappingController {
         if (!existMappings.isEmpty()) {
             List<String> mappingIds = existMappings.stream().map(IotProductPropertyMapping::getId).collect(Collectors.toList());
             
-            // 删除地址配置
-            for (String mappingId : mappingIds) {
-                productAddressConfigService.remove(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotProductAddressConfig>()
-                        .eq(IotProductAddressConfig::getMappingId, mappingId)
-                );
-            }
+            // 批量删除地址配置
+            productAddressConfigService.remove(
+                new LambdaQueryWrapper<IotProductAddressConfig>()
+                    .in(IotProductAddressConfig::getMappingId, mappingIds)
+            );
             
             // 删除属性映射
             productPropertyMappingService.removeByIds(mappingIds);
@@ -154,64 +161,74 @@ public class IotProductPropertyMappingController {
                 IotProductAddressConfig addressConfig = new IotProductAddressConfig();
                 addressConfig.setId(cn.hutool.core.util.IdUtil.getSnowflakeNextIdStr());
                 addressConfig.setMappingId(mappingId);
-                addressConfig.setProtocolType(protocolType); // 从产品获取协议类型
+                addressConfig.setProtocolType(protocolType);
                 
-                // 设置deviceAddress（必填字段，如果null则使用默认值"0"）
-                String registerAddress = (String) item.get("registerAddress");
+                // 设置deviceAddress（必填字段）
+                // 处理前端可能传递 String 或 Integer 类型的地址
+                Object registerAddressObj = item.get("registerAddress");
+                String registerAddress = null;
+                if (registerAddressObj != null) {
+                    registerAddress = registerAddressObj.toString();
+                }
                 addressConfig.setDeviceAddress(registerAddress != null && !registerAddress.isEmpty() ? registerAddress : "0");
                 
-                addressConfig.setDataType((String) item.get("dataType"));
+                // 自动从物模型获取dataType（如果前端没有传）
+                String dataType = (String) item.get("dataType");
+                if (dataType == null || dataType.isEmpty()) {
+                    // 从物模型查询valueType
+                    String thingModelId = (String) item.get("thingModelId");
+                    if (thingModelId != null) {
+                        IotThingModel thingModel = thingModelService.getById(thingModelId);
+                        if (thingModel != null && thingModel.getValueType() != null) {
+                            // 映射物模型valueType到协议数据类型
+                            dataType = mapValueTypeToProtocolDataType(thingModel.getValueType(), protocolType);
+                        }
+                    }
+                }
+                addressConfig.setDataType(dataType);
                 
                 // 处理数值类型转换
                 Object scaleFactor = item.get("scaleFactor");
                 addressConfig.setValueMultiplier(scaleFactor != null ? new java.math.BigDecimal(scaleFactor.toString()) : java.math.BigDecimal.ONE);
                 
-                Object offset = item.get("offset");
-                addressConfig.setValueOffset(offset != null ? new java.math.BigDecimal(offset.toString()) : java.math.BigDecimal.ZERO);
+                // valueOffset 默认为 0
+                Object valueOffset = item.get("valueOffset");
+                addressConfig.setValueOffset(valueOffset != null ? new java.math.BigDecimal(valueOffset.toString()) : java.math.BigDecimal.ZERO);
                 
                 addressConfig.setByteOrder((String) item.get("byteOrder"));
                 
-                // 构建extConfig JSON（存储所有协议特定字段）
+                // 构建 extConfig JSON（存储所有协议特定字段）
                 cn.hutool.json.JSONObject extConfig = cn.hutool.json.JSONUtil.createObj();
                 
-                // 1. 先尝试从xtJson中提取字段（前端可能把S7字段放在extJson中）
-                String extJsonStr = (String) item.get("extJson");
-                if (extJsonStr != null && !extJsonStr.isEmpty()) {
-                    try {
-                        cn.hutool.json.JSONObject frontendExtJson = cn.hutool.json.JSONUtil.parseObj(extJsonStr);
-                        // 将extJson中的所有字段提取到item顶层（便于后续处理）
-                        frontendExtJson.forEach((key, value) -> {
-                            if (!item.containsKey(key)) {
-                                item.put(key, value);
-                            }
-                        });
-                    } catch (Exception e) {
-                        log.warn("解析extJson失败: {}", extJsonStr);
-                    }
-                }
-                
-                // 2. registerAddress作为整数存入extConfig
+                // ⚠️ 重要：registerAddress 必须存入 extConfig，设备控制时需要从这里读取
                 if (registerAddress != null && !registerAddress.isEmpty()) {
                     try {
+                        // 尝试转换为整数（Modbus寄存器地址）
                         extConfig.set("registerAddress", Integer.parseInt(registerAddress));
                     } catch (NumberFormatException e) {
-                        extConfig.set("registerAddress", 0);
+                        // 如果不是纯数字，存储为字符串（其他协议可能需要）
+                        extConfig.set("registerAddress", registerAddress);
                     }
                 }
                 
-                // 3. 存储所有可能的协议特定字段
-                // Modbus字段
-                if (item.get("functionCode") != null) extConfig.set("functionCode", item.get("functionCode"));
-                if (item.get("slaveAddress") != null) extConfig.set("slaveAddress", item.get("slaveAddress"));
-                else if ("MODBUS_TCP".equals(protocolType)) extConfig.set("slaveAddress", 1);
-                if (item.get("bitIndex") != null) extConfig.set("bitIndex", item.get("bitIndex"));
+                // 通用化：自动将所有非标准字段存入 extConfig
+                // 标准字段列表（已经单独处理的字段）
+                Set<String> standardFields = new HashSet<>(Arrays.asList(
+                    "thingModelId", "identifier", "registerAddress", "dataType", 
+                    "scaleFactor", "valueOffset", "byteOrder", "enabled", 
+                    "sortCode", "name", "description", "displayAddress",
+                    "id", "productId", "createTime", "updateTime"
+                ));
                 
-                // S7字段（兼容area和storageArea两种字段名）
-                Object area = item.get("area") != null ? item.get("area") : item.get("storageArea");
-                if (area != null) extConfig.set("storageArea", area);
-                if (item.get("dbNumber") != null) extConfig.set("dbNumber", item.get("dbNumber"));
-                if (item.get("offset") != null) extConfig.set("offset", item.get("offset"));
-                if (item.get("dataTypePrefix") != null) extConfig.set("dataTypePrefix", item.get("dataTypePrefix"));
+                // 自动存储所有非标准字段到 extConfig
+                item.forEach((key, value) -> {
+                    if (!standardFields.contains(key) && value != null) {
+                        // registerAddress 已经单独处理过了，不要重复添加
+                        if (!key.equals("registerAddress")) {
+                            extConfig.set(key, value);
+                        }
+                    }
+                });
                 
                 addressConfig.setExtConfig(extConfig.toString());
                 addressConfig.setPollingInterval(0);
@@ -240,18 +257,72 @@ public class IotProductPropertyMappingController {
     public CommonResult<String> delete(@PathVariable String productId, @RequestBody List<String> ids) {
         log.info("删除产品{}的属性映射，ID列表：{}", productId, ids);
         
-        // 1. 先删除关联的地址配置（级联删除）
-        for (String mappingId : ids) {
-            productAddressConfigService.remove(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotProductAddressConfig>()
-                    .eq(IotProductAddressConfig::getMappingId, mappingId)
-            );
-        }
+        // 1. 批量删除关联的地址配置（级联删除）
+        productAddressConfigService.remove(
+            new LambdaQueryWrapper<IotProductAddressConfig>()
+                .in(IotProductAddressConfig::getMappingId, ids)
+        );
         
         // 2. 删除属性映射
         productPropertyMappingService.removeByIds(ids);
         
         log.info("成功删除{}条产品属性映射", ids.size());
         return CommonResult.ok("删除成功");
+    }
+    
+    /**
+     * 映射物模型 valueType 到协议数据类型
+     * @param valueType 物模型数据类型 (int32, float, double, bool, string)
+     * @param protocolType 协议类型 (S7, MODBUS_TCP, OPC_UA等)
+     * @return 协议特定的数据类型
+     */
+    private String mapValueTypeToProtocolDataType(String valueType, String protocolType) {
+        if (valueType == null || valueType.isEmpty()) {
+            return "int"; // 默认值
+        }
+        
+        // S7协议的映射
+        if ("S7".equalsIgnoreCase(protocolType)) {
+            switch (valueType.toLowerCase()) {
+                case "int32":
+                case "int":
+                    return "int";      // 2字节有符号整数
+                case "dint":
+                    return "dint";     // 4字节整数
+                case "float":
+                case "double":
+                    return "float";    // 4字节浮点数 (S7中的REAL类型)
+                case "bool":
+                case "boolean":
+                    return "bool";
+                case "word":
+                    return "word";     // 2字节无符号整数
+                case "byte":
+                    return "byte";
+                default:
+                    log.warn("未知的valueType: {}, 默认使用int", valueType);
+                    return "int";
+            }
+        }
+        
+        // Modbus协议的映射
+        if ("MODBUS_TCP".equalsIgnoreCase(protocolType) || "MODBUS_RTU".equalsIgnoreCase(protocolType)) {
+            switch (valueType.toLowerCase()) {
+                case "int32":
+                case "int":
+                    return "int16";
+                case "float":
+                case "double":
+                    return "float32";
+                case "bool":
+                case "boolean":
+                    return "bool";
+                default:
+                    return "int16";
+            }
+        }
+        
+        // 其他协议直接使用valueType
+        return valueType;
     }
 }

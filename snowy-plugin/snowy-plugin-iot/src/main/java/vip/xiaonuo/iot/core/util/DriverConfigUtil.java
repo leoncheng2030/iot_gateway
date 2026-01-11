@@ -181,23 +181,54 @@ public class DriverConfigUtil {
     }
 
     /**
-     * 从设备扩展配置中获取Modbus从站地址
+     * 从驱动关联配置或设备扩展配置中获取Modbus从站地址
+     * 优先级：驱动关联device_config > 设备extJson
+     * 
+     * @param driverRel 设备驱动关联（可为null）
+     * @param device 设备（可为null）
+     * @return Modbus从站地址，默认1
+     */
+    public static int getModbusSlaveAddress(IotDeviceDriverRel driverRel, IotDevice device) {
+        // 1. 优先使用驱动关联配置（device_config中的slaveAddress或slaveId字段）
+        if (driverRel != null && StrUtil.isNotBlank(driverRel.getDeviceConfig())) {
+            try {
+                JSONObject deviceConfig = JSONUtil.parseObj(driverRel.getDeviceConfig());
+                // 先尝试获取slaveAddress，再尝试slaveId（兼容不同命名）
+                Integer slaveAddress = deviceConfig.getInt("slaveAddress");
+                if (slaveAddress != null && slaveAddress > 0) {
+                    return slaveAddress;
+                }
+                Integer slaveId = deviceConfig.getInt("slaveId");
+                if (slaveId != null && slaveId > 0) {
+                    return slaveId;
+                }
+            } catch (Exception e) {
+                // 解析失败，继续使用设备配置
+            }
+        }
+        
+        // 2. 使用设备扩展配置（extJson中的modbusSlaveAddress字段）
+        if (device != null && StrUtil.isNotBlank(device.getExtJson())) {
+            try {
+                JSONObject extJson = JSONUtil.parseObj(device.getExtJson());
+                Integer slaveAddress = extJson.getInt("modbusSlaveAddress");
+                return slaveAddress != null && slaveAddress > 0 ? slaveAddress : 1;
+            } catch (Exception e) {
+                return 1;
+            }
+        }
+        
+        return 1; // 默认从站地址
+    }
+    
+    /**
+     * 从设备扩展配置中获取Modbus从站地址（简化调用方式）
      * 
      * @param device 设备
      * @return Modbus从站地址，默认1
      */
     public static int getModbusSlaveAddress(IotDevice device) {
-        if (device == null || StrUtil.isBlank(device.getExtJson())) {
-            return 1; // 默认从站地址
-        }
-        
-        try {
-            JSONObject extJson = JSONUtil.parseObj(device.getExtJson());
-            Integer slaveAddress = extJson.getInt("modbusSlaveAddress");
-            return slaveAddress != null && slaveAddress > 0 ? slaveAddress : 1;
-        } catch (Exception e) {
-            return 1;
-        }
+        return getModbusSlaveAddress(null, device);
     }
 
     /**
@@ -229,13 +260,18 @@ public class DriverConfigUtil {
      * @return 主机地址，可能为null
      */
     public static String getIpAddress(IotDeviceDriverRel driverRel, IotDevice device) {
-        // 1. 优先使用驱动关联配置（device_config中的host字段）
+        // 1. 优先使用驱动关联配置（device_config中的host或ip字段）
         if (driverRel != null && StrUtil.isNotBlank(driverRel.getDeviceConfig())) {
             try {
                 JSONObject deviceConfig = JSONUtil.parseObj(driverRel.getDeviceConfig());
+                // 先尝试获取host，再尝试ip（兼容不同命名）
                 String host = deviceConfig.getStr("host");
                 if (StrUtil.isNotBlank(host)) {
                     return host;
+                }
+                String ip = deviceConfig.getStr("ip");
+                if (StrUtil.isNotBlank(ip)) {
+                    return ip;
                 }
             } catch (Exception e) {
                 // 解析失败，继续使用设备配置

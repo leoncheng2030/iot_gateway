@@ -67,7 +67,6 @@
 					:protocol-type="deviceData.protocolType"
 					show-mode-switch
 					@save="saveDeviceLevelMapping"
-					@delete="deleteDeviceLevelMapping"
 					@mode-change="onMappingModeChange"
 				/>
 			</a-tab-pane>
@@ -86,6 +85,7 @@
 	import iotDeviceShadowApi from '@/api/iot/iotDeviceShadowApi'
 	import iotThingModelApi from '@/api/iot/iotThingModelApi'
 	import iotDevicePropertyMappingApi from '@/api/iot/iotDevicePropertyMappingApi'
+	import iotProductPropertyMappingApi from '@/api/iot/iotProductPropertyMappingApi'
 	import { ModelType, SSEMessageType } from '@/utils/iotConstants'
 
 	// 导入组件
@@ -129,14 +129,14 @@
 	// 物模型valueType到协议dataType的映射
 	const getDataTypeFromValueType = (valueType) => {
 		const mapping = {
-			'int32': 'int',
-			'int64': 'int',
-			'float': 'float',
-			'double': 'double',
-			'bool': 'bool',
-			'text': 'string',
-			'enum': 'int',
-			'date': 'string'
+			int32: 'int',
+			int64: 'int',
+			float: 'float',
+			double: 'double',
+			bool: 'bool',
+			text: 'string',
+			enum: 'int',
+			date: 'string'
 		}
 		return mapping[valueType] || 'int'
 	}
@@ -147,12 +147,12 @@
 		const protocolType = deviceData.value.protocolType
 		// S7设备使用TCP协议，也需要寄存器映射
 		const supportedProtocols = ['MODBUS_TCP', 'MODBUS_RTU', 'S7', 'TCP']
-		
+
 		// 如果是支持的协议类型，直接返回true
 		if (supportedProtocols.includes(protocolType)) {
 			return true
 		}
-		
+
 		// 否则检查是否有寄存器映射配置（设备级或产品级）
 		if (propertyList.value && propertyList.value.length > 0) {
 			// 至少有一个配置了寄存器地址的属性
@@ -288,8 +288,8 @@
 					const thingModel = thingModelMap[item.identifier] || {}
 					const result = {
 						id: item.thingModelId,
-						identifier: item.identifier,  // 物模型属性标识符
-						originalIdentifier: item.identifier,  // 保存原始标识符
+						identifier: item.identifier, // 物模型属性标识符
+						originalIdentifier: item.identifier, // 保存原始标识符
 						name: thingModel.name || item.identifier,
 						valueType: thingModel.valueType,
 						accessMode: thingModel.accessMode,
@@ -301,7 +301,7 @@
 						deviceMappingId: item.id,
 						extJson: thingModel.extJson
 					}
-												
+
 					// 从extJson中恢复S7协议的额外字段
 					if (item.extJson) {
 						try {
@@ -317,42 +317,59 @@
 							console.error('解析extJson失败', e)
 						}
 					}
-												
+
 					return result
 				})
 				return
 			}
 
-			// 2. 没有设备级配置，使用产品级（物模型）
+			// 2. 没有设备级配置，使用产品级寄存器映射
 			useDeviceLevelMapping.value = false
+
+			// 调用产品级映射API获取数据（已包含地址配置）
+			const productMappings = await iotProductPropertyMappingApi.iotProductPropertyMappingList({
+				productId: deviceData.value.productId
+			})
+			// 加载物模型信息，补充值类型、读写类型等字段
 			const properties = await iotThingModelApi.iotThingModelGetProperties({
 				productId: deviceData.value.productId,
 				modelType: ModelType.PROPERTY
 			})
 
-			// 从extJson中读取寄存器地址、功能码和数据类型
-			propertyList.value = (properties || []).map((item) => {
-				let registerAddress = null
-				let functionCode = null
-				let dataType = null
+			// 创建物模型映射表
+			const thingModelMap = {}
+			properties.forEach((prop) => {
+				thingModelMap[prop.identifier] = prop
+			})
 
-				if (item.extJson) {
-					try {
-						const extJson = typeof item.extJson === 'string' ? JSON.parse(item.extJson) : item.extJson
-						registerAddress = extJson.registerAddress
-						functionCode = extJson.functionCode
-						dataType = extJson.dataType
-					} catch (e) {
-						console.error('解析extJson失败', e)
-					}
-				}
-
+			// 合并产品级配置和物模型信息
+			propertyList.value = (productMappings || []).map((item) => {
+				const thingModel = thingModelMap[item.identifier] || {}
 				return {
-					...item,
-					registerAddress,
-					functionCode,
-					// 自动推导：如果extJson没有dataType，从 valueType 推导
-					dataType: dataType || getDataTypeFromValueType(item.valueType)
+					id: item.thingModelId,
+					identifier: item.identifier,
+					originalIdentifier: item.identifier,
+					name: thingModel.name || item.name || item.identifier,
+					valueType: thingModel.valueType,
+					accessMode: thingModel.accessMode,
+					valueSpecs: thingModel.valueSpecs,
+					registerAddress: item.registerAddress,
+					functionCode: item.functionCode,
+					dataType: item.dataType || getDataTypeFromValueType(thingModel.valueType),
+					// 产品级的ID
+					productMappingId: item.id,
+					// S7协议字段（仅用于构建器）
+					displayAddress: item.registerAddress, // displayAddress和registerAddress都指向同一个值
+					area: item.area,
+					dbNumber: item.dbNumber,
+					dataTypePrefix: item.dataTypePrefix,
+					offset: item.offset,
+					bitIndex: item.bitIndex,
+					// 其他字段
+					scaleFactor: item.scaleFactor,
+					valueOffset: item.valueOffset,
+					byteOrder: item.byteOrder,
+					enabled: item.enabled
 				}
 			})
 		} finally {
@@ -364,41 +381,67 @@
 	const onMappingModeChange = async (useDeviceLevel) => {
 		if (useDeviceLevel) {
 			// 切换到设备级：从产品级克隆配置
+			// 调用产品级映射API获取数据
+			const productMappings = await iotProductPropertyMappingApi.iotProductPropertyMappingList({
+				productId: deviceData.value.productId
+			})
+
+			// 加载物模型信息
 			const properties = await iotThingModelApi.iotThingModelGetProperties({
 				productId: deviceData.value.productId,
 				modelType: ModelType.PROPERTY
 			})
-			
-			// 从extJson中读取寄存器地址作为初始值
-			propertyList.value = (properties || []).map((item) => {
-				let registerAddress = null
-				let functionCode = null
-				let dataType = null
-				
-				if (item.extJson) {
-					try {
-						const extJson = typeof item.extJson === 'string' ? JSON.parse(item.extJson) : item.extJson
-						registerAddress = extJson.registerAddress
-						functionCode = extJson.functionCode
-						dataType = extJson.dataType
-					} catch (e) {
-						console.error('解析extJson失败', e)
-					}
-				}
-				
+
+			// 创建物模型映射表
+			const thingModelMap = {}
+			properties.forEach((prop) => {
+				thingModelMap[prop.identifier] = prop
+			})
+
+			// 合并产品级配置和物模型信息
+			propertyList.value = (productMappings || []).map((item) => {
+				const thingModel = thingModelMap[item.identifier] || {}
 				return {
-					...item,
-					registerAddress,
-					functionCode,
-					// 自动推导：如果extJson没有dataType，从 valueType 推导
-					dataType: dataType || getDataTypeFromValueType(item.valueType)
+					id: item.thingModelId,
+					identifier: item.identifier,
+					originalIdentifier: item.identifier,
+					name: thingModel.name || item.name || item.identifier,
+					valueType: thingModel.valueType,
+					accessMode: thingModel.accessMode,
+					valueSpecs: thingModel.valueSpecs,
+					registerAddress: item.registerAddress,
+					functionCode: item.functionCode,
+					dataType: item.dataType || getDataTypeFromValueType(thingModel.valueType),
+					// S7协议字段（仅用于构建器）
+					displayAddress: item.registerAddress,
+					area: item.area,
+					dbNumber: item.dbNumber,
+					dataTypePrefix: item.dataTypePrefix,
+					offset: item.offset,
+					bitIndex: item.bitIndex,
+					// 其他字段
+					scaleFactor: item.scaleFactor,
+					valueOffset: item.valueOffset,
+					byteOrder: item.byteOrder,
+					enabled: item.enabled
 				}
 			})
-			
-			message.info('已切换到设备级配置，修改后请点击"保存设备级配置"')
+
+			message.info('已切换到设备级配置，修改后请点击“保存设备级配置”')
 		} else {
-			// 切换到产品级：重新加载
-			loadModbusMapping()
+			// 切换到产品级：自动清除设备级配置
+			try {
+				await iotDevicePropertyMappingApi.iotDevicePropertyMappingClear({
+					deviceId: deviceData.value.id
+				})
+				message.success('已清除设备级配置，切换到产品级配置')
+				// 重新加载产品级配置
+				loadModbusMapping()
+			} catch (e) {
+				message.error('清除设备级配置失败: ' + e.message)
+				// 失败也要重新加载，尝试显示产品级配置
+				loadModbusMapping()
+			}
 		}
 	}
 
@@ -407,14 +450,35 @@
 		try {
 			const protocolType = deviceData.value.protocolType?.toUpperCase()
 			const isS7Protocol = protocolType === 'S7' || protocolType === 'TCP'
-			
+
+			// 【调试】打印保存前的数据
+			console.log('🔧 准备保存设备级映射，协议类型:', protocolType, ', isS7Protocol:', isS7Protocol)
+			console.log('🔧 propertyList原始数据（前3条）:', propertyList.value.slice(0, 3))
+
 			// 构建设备级映射数据
 			const mappings = propertyList.value
 				.filter((item) => {
-					// S7协议：检查 displayAddress 是否有效
+					// S7协议：检查 displayAddress 或 registerAddress 是否有效
 					if (isS7Protocol) {
 						// S7地址格式：DB1.DBD0 或 MW100 等
-						return item.displayAddress && (item.displayAddress.includes('DB') || item.displayAddress.includes('M') || item.displayAddress.includes('I') || item.displayAddress.includes('Q'))
+						// 优先使用 displayAddress，如果不存在则使用 registerAddress
+						const address = item.displayAddress || item.registerAddress
+						const isValid =
+							address &&
+							(address.includes('DB') || address.includes('M') || address.includes('I') || address.includes('Q'))
+						console.log(
+							'🔧 S7属性过滤:',
+							item.identifier,
+							'displayAddress:',
+							item.displayAddress,
+							'registerAddress:',
+							item.registerAddress,
+							'使用:',
+							address,
+							'isValid:',
+							isValid
+						)
+						return isValid
 					}
 					// Modbus协议：检查 registerAddress
 					return item.registerAddress != null
@@ -429,7 +493,7 @@
 						dataType: item.dataType,
 						enabled: true
 					}
-					
+
 					// S7协议：将额外字段序列化到 extJson
 					if (isS7Protocol) {
 						const extData = {}
@@ -440,21 +504,24 @@
 						if (item.dataTypePrefix) extData.dataTypePrefix = item.dataTypePrefix
 						if (item.offset != null) extData.offset = item.offset
 						if (item.bitIndex != null) extData.bitIndex = item.bitIndex
-						
+
 						if (Object.keys(extData).length > 0) {
 							mapping.extJson = JSON.stringify(extData)
 						}
 					}
-					
+
 					return mapping
 				})
 
+			console.log('🔧 过滤后的mappings数据:', mappings)
+
 			if (mappings.length === 0) {
-				if (isS7Protocol) {
-					message.warning('请至少配置一个寄存器映射，点击"构建"按钮配置S7地址')
-				} else {
-					message.warning('请至少配置一个寄存器映射')
-				}
+				const errorMsg = isS7Protocol
+					? '请至少配置一个寄存器映射，点击“构建”按钮配置S7地址！\n\n请检查：\n1. 是否已点击“构建”按钮生成S7地址\n2. displayAddress字段是否包含DB/M/I/Q关键字'
+					: '请至少配置一个寄存器映射！'
+				console.error('❌ 保存失败：', errorMsg)
+				console.error('❌ propertyList总数:', propertyList.value.length)
+				message.error(errorMsg, 5) // 5秒显示
 				return
 			}
 
@@ -470,28 +537,13 @@
 		}
 	}
 
-	// 清除设备级映射
-	const deleteDeviceLevelMapping = async () => {
-		try {
-			await iotDevicePropertyMappingApi.iotDevicePropertyMappingClear({
-				deviceId: deviceData.value.id
-			})
-
-			message.success('设备级寄存器映射已清除')
-			useDeviceLevelMapping.value = false
-			loadModbusMapping()
-		} catch (e) {
-			message.error('清除失败: ' + e.message)
-		}
-	}
-
 	// 注册SSE消息处理器
 	const registerSSEHandler = () => {
 		sseMessageHandler.value = (message) => {
 			// console.log('🔵 收到SSE消息:', message)
 			// console.log('🔵 当前设备详情页是否打开:', open.value)
 			// console.log('🔵 当前设备ID:', deviceData.value.id)
-			
+
 			if (!open.value || !deviceData.value.id) {
 				// console.warn('⚠️ 设备详情页未打开或设备ID不存在，忽略消息')
 				return
@@ -502,7 +554,7 @@
 				// console.warn('⚠️ 消息deviceId不匹配 - 消息ID:', message.deviceId, ', 当前ID:', deviceData.value.id)
 				return
 			}
-			
+
 			// console.log('✅ 消息deviceId匹配，开始处理')
 
 			const now = new Date().toLocaleTimeString('zh-CN', {

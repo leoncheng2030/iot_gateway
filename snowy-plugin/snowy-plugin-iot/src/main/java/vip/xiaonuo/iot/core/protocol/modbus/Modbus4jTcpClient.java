@@ -344,7 +344,7 @@ public class Modbus4jTcpClient {
         }
 
         try {
-            int slaveId = DriverConfigUtil.getModbusSlaveAddress(device);
+            int slaveId = DriverConfigUtil.getModbusSlaveAddress(driverRel, device);
             
             // 读取线圈状态（使用BatchRead）
             BatchRead<Integer> batchRead = new BatchRead<>();
@@ -390,7 +390,7 @@ public class Modbus4jTcpClient {
         }
 
         try {
-            int slaveId = DriverConfigUtil.getModbusSlaveAddress(device);
+            int slaveId = DriverConfigUtil.getModbusSlaveAddress(driverRel, device);
             
             // 读取离散输入状态（使用BatchRead）
             BatchRead<Integer> batchRead = new BatchRead<>();
@@ -436,7 +436,7 @@ public class Modbus4jTcpClient {
         }
 
         try {
-            int slaveId = DriverConfigUtil.getModbusSlaveAddress(device);
+            int slaveId = DriverConfigUtil.getModbusSlaveAddress(driverRel, device);
             
             // 读取保持寄存器（使用BatchRead）
             BatchRead<Integer> batchRead = new BatchRead<>();
@@ -482,7 +482,7 @@ public class Modbus4jTcpClient {
         }
 
         try {
-            int slaveId = DriverConfigUtil.getModbusSlaveAddress(device);
+            int slaveId = DriverConfigUtil.getModbusSlaveAddress(driverRel, device);
             
             // 读取输入寄存器（使用BatchRead）
             BatchRead<Integer> batchRead = new BatchRead<>();

@@ -21,6 +21,7 @@ import vip.xiaonuo.iot.modular.device.entity.IotDeviceAddressConfig;
 import vip.xiaonuo.iot.modular.device.mapper.IotDevicePropertyMappingMapper;
 import vip.xiaonuo.iot.modular.device.mapper.IotDeviceAddressConfigMapper;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
+import vip.xiaonuo.iot.modular.device.service.IotDevicePropertyMappingService;
 import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 
 import java.util.Arrays;
@@ -57,6 +58,9 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
     
     @Resource
     private IotDeviceAddressConfigMapper addressConfigMapper;
+    
+    @Resource
+    private IotDevicePropertyMappingService propertyMappingService;
 
     /**
      * 定时采集任务执行器
@@ -227,35 +231,23 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
         String deviceId = device.getId();
         
         try {
-            // 1. 查询设备的所有启用的属性映射
-            List<IotDevicePropertyMapping> propertyMappings = propertyMappingMapper.selectList(
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDevicePropertyMapping>()
-                    .eq(IotDevicePropertyMapping::getDeviceId, deviceId)
-                    .eq(IotDevicePropertyMapping::getEnabled, true)
-            );
+            // 使用继承逻辑：优先设备级配置，如果没有则使用产品级配置
+            List<Map<String, Object>> mappingsWithAddress = propertyMappingService.getDevicePropertyMappingsWithAddress(deviceId);
             
-            if (propertyMappings.isEmpty()) {
-                log.warn("S7设备未配置属性映射，跳过采集 - DeviceKey: {}", device.getDeviceKey());
+            if (mappingsWithAddress.isEmpty()) {
+                log.warn("S7设备未配置属性映射（设备级和产品级都没有），跳过采集 - DeviceKey: {}", device.getDeviceKey());
                 return;
             }
             
-            log.info("S7开始采集数据 - DeviceKey: {}, 属性数量: {}", device.getDeviceKey(), propertyMappings.size());
-            
             JSONObject data = JSONUtil.createObj();
             
-            // 2. 遍历属性，查询对应的S7地址配置并读取数据
-            for (IotDevicePropertyMapping mapping : propertyMappings) {
+            // 遍历属性并读取数据
+            for (Map<String, Object> item : mappingsWithAddress) {
                 try {
-                    // 查询该属性的S7协议地址配置
-                    IotDeviceAddressConfig addressConfig = addressConfigMapper.selectOne(
-                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<IotDeviceAddressConfig>()
-                            .eq(IotDeviceAddressConfig::getMappingId, mapping.getId())
-                            .eq(IotDeviceAddressConfig::getProtocolType, "S7")
-                            .eq(IotDeviceAddressConfig::getEnabled, true)
-                    );
+                    String identifier = (String) item.get("identifier");
+                    IotDeviceAddressConfig addressConfig = (IotDeviceAddressConfig) item.get("addressConfig");
                     
-                    if (addressConfig == null) {
-                        log.debug("S7属性未配置地址 - Identifier: {}", mapping.getIdentifier());
+                    if (addressConfig == null || !addressConfig.getEnabled()) {
                         continue;
                     }
                     
@@ -274,18 +266,12 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
                         }
                         
                         // 使用物模型属性标识符作为key
-                        data.set(mapping.getIdentifier(), value);
-                        
-                        // 更新成功时间
-                        addressConfig.setLastSuccessTime(new java.util.Date());
-                        addressConfig.setLastErrorMessage(null);
-                        addressConfigMapper.updateById(addressConfig);
-                        
-                        log.debug("S7读取成功 - Identifier: {}, Value: {}", mapping.getIdentifier(), value);
+                        data.set(identifier, value);
                     }
                     
                 } catch (Exception e) {
-                    log.error("S7读取属性失败 - Identifier: {}, Error: {}", mapping.getIdentifier(), e.getMessage());
+                    String identifier = (String) item.get("identifier");
+                    log.error("S7读取属性失败 - Identifier: {}, Error: {}", identifier, e.getMessage());
                     throw e;
                 }
             }
@@ -294,7 +280,7 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             if (!data.isEmpty()) {
                 String topic = String.format("/%s/%s/property/post", 
                     device.getProductId(), device.getDeviceKey());
-                log.info("S7采集数据成功 - DeviceKey: {}, 数据: {}", device.getDeviceKey(), data.toString());
+                log.debug("S7采集数据成功 - DeviceKey: {}, 数据: {}", device.getDeviceKey(), data.toString());
                 deviceMessageService.handleDeviceMessage(topic, data.toString());
             }
             
@@ -377,8 +363,6 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             int offset = Integer.parseInt(parts[1].substring(3));
 
             int size = getSizeByType(valueType);
-            log.info("S7读取DB区 - DeviceId: {}, DB号: {}, 偏移: {}, 字节数: {}, 数据类型: {}", 
-                deviceId, dbNumber, offset, size, valueType);
             
             byte[] buffer = s7Client.readDB(deviceId, dbNumber, offset, size);
             
@@ -389,8 +373,6 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             }
             
             Object value = convertValue(buffer, 0, valueType);
-            log.info("S7 DB区读取成功 - DeviceId: {}, 原始字节: {}, 解析值: {}", 
-                deviceId, bytesToHex(buffer), value);
             
             return value;
         } catch (Exception e) {

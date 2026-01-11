@@ -6,7 +6,6 @@
 				<a-switch v-model:checked="useMappingModeLocal" @change="onMappingModeChange" />
 				<span>使用设备级配置（当前：{{ useMappingModeLocal ? '设备级' : '产品级' }}）</span>
 				<a-button v-if="useMappingModeLocal" type="primary" size="small" @click="handleSave"> 保存设备级配置 </a-button>
-				<a-button v-if="useMappingModeLocal" danger size="small" @click="handleDelete"> 清除设备级配置 </a-button>
 			</a-space>
 		</a-card>
 
@@ -43,9 +42,9 @@
 				<template v-if="column.dataIndex === 'identifier'">
 					<a-tag color="blue">{{ record.identifier }}</a-tag>
 				</template>
-				
+
 				<!-- 地址列：根据协议模板动态渲染 -->
-				<template v-if="column.dataIndex === 'address'">
+				<template v-if="column.dataIndex === 'registerAddress'">
 					<!-- BUILDER 模式：显示文本输入 + 构建按钮 -->
 					<template v-if="addressTemplate?.inputMode === 'BUILDER'">
 						<a-input
@@ -53,9 +52,11 @@
 							style="width: 180px"
 							:placeholder="addressTemplate.formatDescription || '地址'"
 							readonly
+							:disabled="showModeSwitch && !useMappingModeLocal"
 						>
 							<template #addonAfter>
-								<a @click="openAddressBuilder(record)">构建</a>
+								<a v-if="!showModeSwitch || useMappingModeLocal" @click="openAddressBuilder(record)">构建</a>
+								<span v-else style="color: #999">构建</span>
 							</template>
 						</a-input>
 					</template>
@@ -67,13 +68,15 @@
 							:max="65535"
 							style="width: 100px"
 							placeholder="地址"
+							:disabled="showModeSwitch && !useMappingModeLocal"
 						/>
 					</template>
 				</template>
-				
+
 				<!-- 动态渲染其他字段（根据模板定义） -->
 				<template v-for="field in addressTemplate?.fields || []" :key="field.name">
-					<template v-if="column.dataIndex === field.name">
+					<!-- 跳过 registerAddress 字段，因为已经在上面处理过了 -->
+					<template v-if="column.dataIndex === field.name && field.name !== 'registerAddress'">
 						<!-- SELECT 类型 -->
 						<template v-if="field.type === 'SELECT'">
 							<a-select
@@ -81,6 +84,7 @@
 								style="width: 170px"
 								:options="formatFieldOptions(field.options)"
 								:placeholder="field.label"
+								:disabled="showModeSwitch && !useMappingModeLocal"
 							/>
 						</template>
 						<!-- NUMBER 类型 -->
@@ -91,6 +95,7 @@
 								:max="field.max"
 								style="width: 100px"
 								:placeholder="field.label"
+								:disabled="showModeSwitch && !useMappingModeLocal"
 							/>
 						</template>
 						<!-- TEXT 类型 -->
@@ -99,15 +104,17 @@
 								v-model:value="record[field.name]"
 								style="width: 150px"
 								:placeholder="field.label"
+								:disabled="showModeSwitch && !useMappingModeLocal"
 							/>
 						</template>
 					</template>
 				</template>
 				<template v-if="column.dataIndex === 'enabled'">
-					<a-switch v-model:checked="record.enabled" />
+					<a-switch v-model:checked="record.enabled" :disabled="showModeSwitch && !useMappingModeLocal" />
 				</template>
 				<template v-if="column.dataIndex === 'action'">
-					<a @click="openAdvancedConfig(record)">配置</a>
+					<a v-if="!showModeSwitch || useMappingModeLocal" @click="openAdvancedConfig(record)">配置</a>
+					<span v-else style="color: #999">配置</span>
 				</template>
 			</template>
 		</a-table>
@@ -148,11 +155,7 @@
 							style="width: 100%"
 						/>
 						<!-- TEXT 类型 -->
-						<a-input
-							v-else
-							v-model:value="builderFormData[field.name]"
-							style="width: 100%"
-						/>
+						<a-input v-else v-model:value="builderFormData[field.name]" style="width: 100%" />
 						<a-typography-text v-if="field.description" type="secondary">
 							{{ field.description }}
 						</a-typography-text>
@@ -166,9 +169,7 @@
 							<span style="color: #1890ff">🔍</span>
 						</template>
 					</a-input>
-					<a-typography-text type="success" style="font-weight: bold">
-						✓ 该地址将被保存
-					</a-typography-text>
+					<a-typography-text type="success" style="font-weight: bold"> ✓ 该地址将被保存 </a-typography-text>
 				</a-form-item>
 			</a-form>
 
@@ -200,6 +201,12 @@
 			</a-descriptions>
 
 			<a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+				<!-- 数据类型显示（自动从物模型获取） -->
+				<a-form-item label="数据类型">
+					<a-input :value="currentConfigItem.dataType || '未配置'" readonly style="width: 100%" />
+					<a-typography-text type="secondary"> 自动从物模型属性的valueType字段获取，不需要手动配置 </a-typography-text>
+				</a-form-item>
+
 				<!-- 布尔类型配置 -->
 				<template v-if="currentConfigItem.dataType === 'bool'">
 					<a-form-item label="位索引">
@@ -302,13 +309,7 @@
 		}
 	})
 
-	// 调试日志
-	console.log('========== RegisterMappingConfig 组件初始化 ==========')
-	console.log('showModeSwitch:', props.showModeSwitch)
-	console.log('protocolType:', props.protocolType)
-	console.log('mappingList:', props.mappingList)
-
-	const emit = defineEmits(['save', 'refresh', 'delete', 'modeChange', 'update:mappingList', 'update:useDeviceMapping'])
+	const emit = defineEmits(['save', 'refresh', 'modeChange', 'update:mappingList', 'update:useDeviceMapping'])
 
 	// ========== 协议配置模板相关 ==========
 	const addressTemplate = ref(null) // 地址配置模板
@@ -324,8 +325,7 @@
 		templateLoading.value = true
 		try {
 			const response = await iotProtocolApi.iotProtocolAddressTemplate(props.protocolType)
-			console.log('API响应:', response)
-			
+
 			// 检查响应格式，处理 CommonResult 包装
 			if (response && response.data) {
 				addressTemplate.value = response.data
@@ -333,8 +333,6 @@
 				// 直接返回数据（无包装）
 				addressTemplate.value = response
 			}
-			
-			console.log(`加载协议配置模板成功: ${props.protocolType}`, addressTemplate.value)
 		} catch (error) {
 			console.error('加载地址配置模板失败:', error)
 			console.error('错误详情:', error.response || error.message)
@@ -389,30 +387,26 @@
 		(newList) => {
 			pagination.value.total = newList?.length || 0
 		},
-		{ immediate: true }
+		{ immediate: true, deep: true }
 	)
 
 	// 高级配置弹窗
 	const advancedConfigVisible = ref(false)
 	const currentConfigItem = ref({})
 
-	// 判断是否为S7协议
-	const isS7Protocol = computed(() => {
-		const protocol = props.protocolType?.toUpperCase()
-		return protocol === 'S7' || protocol === 'TCP'
-	})
+	// 注：已移除 isS7Protocol，不再需要协议特定的判断逻辑
 
 	// 动态表格列定义（根据模板生成）
 	const columns = computed(() => {
 		const baseColumns = [
-			{ title: '属性名称', dataIndex: 'name', width: 180 },
+			{ title: '属性名称', dataIndex: 'name', width: 200 },
 			{ title: '属性标识符', dataIndex: 'identifier', width: 150 },
-			{ title: '地址', dataIndex: 'address', width: 200 }
+			{ title: '地址', dataIndex: 'registerAddress', width: 200 }
 		]
 
 		// 根据模板添加配置字段列
 		if (addressTemplate.value?.fields) {
-			addressTemplate.value.fields.forEach(field => {
+			addressTemplate.value.fields.forEach((field) => {
 				// 跳过在地址列中已处理的字段
 				if (field.name !== 'registerAddress') {
 					baseColumns.push({
@@ -435,7 +429,7 @@
 	// 格式化字段选项（适配 Ant Design Vue 的 Select 组件）
 	const formatFieldOptions = (options) => {
 		if (!options) return []
-		return options.map(opt => ({
+		return options.map((opt) => ({
 			label: opt.label,
 			value: opt.value
 		}))
@@ -449,59 +443,80 @@
 	// 打开地址构建器
 	const openAddressBuilder = (record) => {
 		currentRecord.value = record
-		
-		// 初始化表单数据（使用默认值）
+
+		// 初始化表单数据（优先使用record中已保存的值，如果不存在才使用默认值）
 		builderFormData.value = {}
-		addressTemplate.value?.fields?.forEach(field => {
-			builderFormData.value[field.name] = record[field.name] || field.defaultValue
+		addressTemplate.value?.fields?.forEach((field) => {
+			// 优先使用record中的值，即使是0、false等falsy值也应该保留
+			if (record[field.name] !== undefined && record[field.name] !== null) {
+				builderFormData.value[field.name] = record[field.name]
+			} else {
+				builderFormData.value[field.name] = field.defaultValue
+			}
 		})
-		
+
 		addressBuilderVisible.value = true
 	}
 
 	// 判断字段是否应该显示（根据 showWhen 条件）
 	const shouldShowField = (field) => {
 		if (!field.showWhen) return true
-		
+
 		// 解析 showWhen 条件（如 "area=DB"）
 		const [fieldName, expectedValue] = field.showWhen.split('=')
 		return builderFormData.value[fieldName] === expectedValue
 	}
 
-	// 生成地址预览
+	// 生成地址预览（通用化：根据 addressTemplate 提供的 formatter 或规则）
 	const addressPreview = computed(() => {
-		// 根据不同协议生成地址
+		if (!addressTemplate.value) {
+			return ''
+		}
+
+		// 如果模板提供了自定义格式化函数（未来扩展）
+		if (addressTemplate.value.formatter) {
+			return addressTemplate.value.formatter(builderFormData.value)
+		}
+
+		// 默认地址生成逻辑：根据协议类型动态生成
 		const protocolType = props.protocolType?.toUpperCase()
-		
+
+		// S7协议的默认地址生成（保持兼容）
 		if (protocolType === 'S7' || protocolType === 'TCP') {
-			// S7 地址格式
 			const { area, dbNumber, dataTypePrefix, offset, bitIndex } = builderFormData.value
 			let address = ''
-			
+
 			if (area === 'DB') {
 				address = `DB${dbNumber || 1}.DB${dataTypePrefix || 'W'}${offset || 0}`
 			} else {
 				address = `${area || 'M'}${dataTypePrefix || 'W'}${offset || 0}`
 			}
-			
+
 			if (dataTypePrefix === 'X' && bitIndex != null) {
 				address += `.${bitIndex}`
 			}
-			
+
 			return address
 		}
-		
-		// 其他协议默认返回空
-		return '地址预览'
+
+		// BACNET等其他协议：根据字段值自动拼接
+		// 例如: BACNET 的 "ANALOG_INPUT:1" 格式
+		if (protocolType === 'BACNET') {
+			const { objectType, instance } = builderFormData.value
+			return objectType && instance != null ? `${objectType}:${instance}` : ''
+		}
+
+		// 通用默认：返回空（对于SIMPLE模式的协议不需要预览）
+		return ''
 	})
 
 	// 保存地址
 	const saveAddress = () => {
 		// 更新当前记录的字段值
-		Object.keys(builderFormData.value).forEach(key => {
+		Object.keys(builderFormData.value).forEach((key) => {
 			currentRecord.value[key] = builderFormData.value[key]
 		})
-		
+
 		// 更新 identifier 字段（用于 BUILDER 模式）
 		// 注意：这里仅用于显示，不应覆盖物模型属性标识符
 		if (addressTemplate.value?.inputMode === 'BUILDER') {
@@ -513,7 +528,10 @@
 			// 但在保存时会恢复 originalIdentifier
 			currentRecord.value.displayAddress = addressPreview.value
 		}
-		
+
+		// 同时更新 registerAddress 字段，用于后端保存
+		currentRecord.value.registerAddress = addressPreview.value
+
 		addressBuilderVisible.value = false
 		message.success('地址配置已更新')
 	}
@@ -593,11 +611,6 @@
 	// 刷新
 	const handleRefresh = () => {
 		emit('refresh')
-	}
-
-	// 删除设备级配置
-	const handleDelete = () => {
-		emit('delete')
 	}
 </script>
 
