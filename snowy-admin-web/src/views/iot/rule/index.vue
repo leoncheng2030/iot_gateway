@@ -82,6 +82,15 @@
 						:text="$TOOL.dictTypeData('COMMON_STATUS', record.status)"
 					/>
 				</template>
+				<template v-if="column.dataIndex === 'integrity'">
+					<a-badge v-if="record.integrityStatus === 'valid'" status="success" text="完整" />
+					<a-badge
+						v-else-if="record.integrityStatus === 'invalid'"
+						status="error"
+						:text="`${record.integrityIssues}个问题`"
+					/>
+					<a-badge v-else status="default" text="未配置" />
+				</template>
 				<template v-if="column.dataIndex === 'action'">
 					<a-space>
 						<a @click="workflowRef.onOpen(record)">规则编排</a>
@@ -141,6 +150,12 @@
 		{
 			title: '状态',
 			dataIndex: 'status',
+			width: 100,
+			align: 'center'
+		},
+		{
+			title: '完整性',
+			dataIndex: 'integrity',
 			width: 100,
 			align: 'center'
 		},

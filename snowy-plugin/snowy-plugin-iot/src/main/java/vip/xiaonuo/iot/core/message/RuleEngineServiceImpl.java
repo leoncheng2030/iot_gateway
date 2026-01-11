@@ -143,7 +143,7 @@ public class RuleEngineServiceImpl implements RuleEngineService {
                                 saveRuleLog(rule, data.toString(), "FAILED", workflowException.getMessage());
                             }
                         } else {
-                            log.info("规则条件不满足 - RuleId: {}", rule.getId());
+                            log.debug("规则条件不满足 - RuleId: {}", rule.getId());
                         }
                     }
                 } catch (Exception e) {
@@ -272,13 +272,13 @@ public class RuleEngineServiceImpl implements RuleEngineService {
                 // 简单条件：直接评估
                 boolean conditionMet = evaluateCondition(properties, data);
                 if (!conditionMet) {
-                    log.info("条件节点不满足: {}", conditionNodeId);
+                    log.debug("条件节点不满足: {}", conditionNodeId);
                     return false;
                 }
             }
         }
         
-        log.info("所有条件节点都满足");
+        log.debug("所有条件节点都满足");
         return true;
     }
 
@@ -398,9 +398,11 @@ public class RuleEngineServiceImpl implements RuleEngineService {
 
         Object actualValue = data.get(property);
         
-        log.info("评估规则条件 - property: {}, operator: {}, expected: {} ({}), actual: {} ({})", 
-                property, operator, expectedValue, expectedValue != null ? expectedValue.getClass().getSimpleName() : "null",
-                actualValue, actualValue != null ? actualValue.getClass().getSimpleName() : "null");
+        // 只在property为null时输出warn日志
+        if (property == null || operator == null) {
+            log.warn("条件配置不完整 - property: {}, operator: {}, expected: {}", property, operator, expectedValue);
+            return false;
+        }
         
         if (actualValue == null) {
             log.warn("属性值为null - property: {}, data: {}", property, data);

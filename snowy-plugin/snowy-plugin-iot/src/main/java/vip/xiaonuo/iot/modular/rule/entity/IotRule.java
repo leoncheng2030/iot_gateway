@@ -56,6 +56,14 @@ public class IotRule extends CommonEntity {
     @Schema(description = "状态")
     private String status;
 
+    /** 完整性状态 */
+    @Schema(description = "完整性状态")
+    private String integrityStatus;
+
+    /** 完整性问题数量 */
+    @Schema(description = "完整性问题数量")
+    private Integer integrityIssues;
+
     /** 排序码 */
     @Schema(description = "排序码")
     private Integer sortCode;
