@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: iot-gateway-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iot_gateway}
+      MYSQL_USER: ${MYSQL_USER:-iot_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-iot_password}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --max_connections=1000
+      - --max_allowed_packet=64M
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./logs/mysql:/var/log/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: iot-gateway-redis
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+    command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # InfluxDB 时序数据库（可选）
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: iot-gateway-influxdb
+    restart: always
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-adminpassword}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-wqs}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-wqs_iot}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-mytoken123456}
+      TZ: Asia/Shanghai
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    ports:
+      - "8086:8086"
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端应用
+  backend:
+    build:
+      context: .
+      dockerfile: snowy-web-app/Dockerfile
+    container_name: iot-gateway-backend
+    restart: always
+    environment:
+      # 数据库配置
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-iot_gateway}?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useInformationSchema=true&rewriteBatchedStatements=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-iot_user}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-iot_password}
+      # Redis 配置
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # InfluxDB 配置
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-mytoken123456}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-wqs}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-wqs_iot}
+      # JVM 配置
+      JAVA_OPTS: ${JAVA_OPTS:--Xms512m -Xmx2g -XX:+UseG1GC}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./logs/backend:/app/logs
+    ports:
+      - "82:82"
+      - "1883:1883"    # MQTT
+      - "8883:8883"    # MQTT SSL
+      - "8083:8083"    # MQTT WebSocket
+      - "8084:8084"    # WebSocket
+    networks:
+      - iot-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:82/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # 前端应用
+  frontend:
+    build:
+      context: ./snowy-admin-web
+      dockerfile: Dockerfile
+    container_name: iot-gateway-frontend
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "80:80"
+    networks:
+      - iot-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  iot-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  influxdb-data:
+    driver: local
+  influxdb-config:
+    driver: local

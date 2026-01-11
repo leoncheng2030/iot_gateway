@@ -51,6 +51,38 @@ WQS IoT Gateway 是一款功能强大的智能物联网网关管理平台，致�
 
 ## 快速启动
 
+### Docker 容器化部署（推荐）
+
+**前置要求**
+- Docker 和 Docker Compose 已安装
+
+**快速启动**
+```bash
+# 1. 复制环境变量模板
+cp .env.example .env
+
+# 2. 修改配置文件（请修改数据库密码等敏感信息）
+vim .env
+
+# 3. 一键启动所有服务
+docker-compose up -d
+
+# 4. 查看服务状态
+docker-compose ps
+```
+
+启动成功后，访问 http://localhost 即可使用系统。
+
+默认账号：`superAdmin` / `123456`
+
+详细的 Docker 部署说明请参考 [docs/Docker部署指南.md](docs/Docker部署指南.md)。
+
+---
+
+### 本地开发环境
+
+如果想进行代码开发，可以按以下方式搭建本地开发环境。
+
 ### 环境准备
 
 | 组件 | 版本要求 | 用途 |
