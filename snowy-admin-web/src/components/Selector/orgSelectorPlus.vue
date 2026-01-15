@@ -10,7 +10,7 @@
 	>
 		<a-row :gutter="10">
 			<a-col :span="7">
-				<a-card size="small" :loading="cardLoading" class="selectorTreeDiv">
+				<a-card size="small" :loading="loadingState.card" class="selectorTreeDiv">
 					<a-tree
 						v-if="treeData"
 						v-model:expandedKeys="defaultExpandedKeys"
@@ -44,7 +44,7 @@
 						:columns="commons"
 						:data-source="tableData"
 						:expand-row-by-click="true"
-						:loading="pageLoading"
+						:loading="loadingState.page"
 						bordered
 						:pagination="false"
 					>
@@ -84,7 +84,7 @@
 						:columns="selectedCommons"
 						:data-source="selectedData"
 						:expand-row-by-click="true"
-						:loading="selectedTableListLoading"
+						:loading="loadingState.selectedTable"
 						bordered
 					>
 						<template #title>
@@ -147,9 +147,14 @@
 	const tableRecordNum = ref()
 	const searchFormState = ref({})
 	const searchFormRef = ref()
-	const cardLoading = ref(true)
-	const pageLoading = ref(false)
-	const selectedTableListLoading = ref(false)
+
+	// 合并加载状态管理
+	const loadingState = reactive({
+		card: true,
+		page: false,
+		selectedTable: false
+	})
+
 	// 替换treeNode 中 title,key,children
 	const treeFieldNames = { children: 'children', title: 'name', key: 'id' }
 	// 获取机构树数据
@@ -180,7 +185,7 @@
 		if (props.orgTreeApi) {
 			// 获取机构树
 			props.orgTreeApi().then((data) => {
-				cardLoading.value = false
+				loadingState.card = false
 				if (data !== null) {
 					treeData.value = data
 					// 默认展开2级
@@ -208,20 +213,20 @@
 			const param = {
 				idList: recordIds.value
 			}
-			selectedTableListLoading.value = true
+			loadingState.selectedTable = true
 			props
 				.checkedOrgListApi(param)
 				.then((data) => {
 					selectedData.value = data
 				})
 				.finally(() => {
-					selectedTableListLoading.value = false
+					loadingState.selectedTable = false
 				})
 		}
 	}
 	// 查询主表格数据
 	const loadData = () => {
-		pageLoading.value = true
+		loadingState.page = true
 		props
 			.orgPageApi(searchFormState.value)
 			.then((data) => {
@@ -231,14 +236,11 @@
 				tableData.value = []
 				tableRecordNum.value = 0
 				tableData.value = data.records
-				if (data.records) {
-					tableRecordNum.value = data.records.length
-				} else {
-					tableRecordNum.value = 0
-				}
+				// 优化：使用可选链简化判断
+				tableRecordNum.value = data.records?.length ?? 0
 			})
 			.finally(() => {
-				pageLoading.value = false
+				loadingState.page = false
 			})
 	}
 	// pageSize改变回调分页事件

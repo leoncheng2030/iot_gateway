@@ -118,12 +118,15 @@
 	import columnSetting from './columnSetting.vue'
 	import { useSlots } from 'vue'
 	import { useRoute } from 'vue-router'
-	import { cloneDeep, get } from 'lodash-es'
+	import { cloneDeep, get, debounce } from 'lodash-es'
 
 	const slots = useSlots()
 	const route = useRoute()
 	const emit = defineEmits(['onExpand', 'onSelectionChange'])
 	const renderSlots = Object.keys(slots)
+
+	// 防抖处理 getTableProps，避免高频重新渲染
+	let debouncedGetTableProps
 
 	const props = defineProps(
 		Object.assign({}, tableProps(), {
@@ -218,63 +221,55 @@
 		selectedRowKeys: []
 	})
 
+	// 合并多个 watch 监听器，提高性能
 	watch(
-		() => props.pageNum,
+		() => ({
+			pageNum: props.pageNum,
+			size: props.size,
+			showSizeChanger: props.showSizeChanger,
+			columns: props.columns
+		}),
 		(newVal) => {
-			Object.assign(data.localPagination, {
-				current: newVal
-			})
-		}
+			// 更新分页配置
+			if (newVal.pageNum || newVal.size || newVal.showSizeChanger) {
+				Object.assign(data.localPagination, {
+					current: newVal.pageNum || data.localPagination.current,
+					size: newVal.size || data.localPagination.size,
+					showSizeChanger: newVal.showSizeChanger !== undefined ? newVal.showSizeChanger : data.localPagination.showSizeChanger
+				})
+			}
+			// 更新列配置
+			if (newVal.columns) {
+				data.columnsSetting = newVal.columns.map((col) => ({
+					...col,
+					checked: col.checked === undefined ? true : col.checked
+				}))
+			}
+		},
+		{ deep: true, immediate: true }
 	)
+
+	// 监听showPagination和rowSelection
 	watch(
-		() => props.size,
+		() => ({
+			rowSelection: props.rowSelection,
+			showPagination: props.showPagination
+		}),
 		(newVal) => {
-			Object.assign(data.localPagination, {
-				size: newVal
-			})
-		}
-	)
-	watch(
-		() => props.showSizeChanger,
-		(newVal) => {
-			Object.assign(data.localPagination, {
-				showSizeChanger: newVal
-			})
-		}
-	)
-	// 监听showPagination的变化
-	watch(
-		() => props.rowSelection,
-		(newVal) => {
-			if (!newVal) {
+			if (!newVal.rowSelection) {
 				// 如果rowSelection被设置为null，清空选中状态
 				data.selectedRows = []
 				data.selectedRowKeys = []
 			}
-			// 更新表格属性
-			getTableProps()
+			// 更新分页状态
+			if (newVal.showPagination !== undefined) {
+				data.localPagination = newVal.showPagination === false ? false : Object.assign({}, data.localPagination)
+				// 重新加载数据和更新表格属性
+				loadData()
+			}
+			debouncedGetTableProps()
 		},
 		{ deep: true }
-	)
-	watch(
-		() => props.showPagination,
-		(newVal) => {
-			// 更新分页状态
-			data.localPagination = newVal === false ? false : Object.assign({}, data.localPagination)
-			// 重新加载数据和更新表格属性
-			loadData()
-			getTableProps()
-		}
-	)
-	watch(
-		() => props.columns,
-		(newVal) => {
-			data.columnsSetting = newVal.map((col) => ({
-				...col,
-				checked: col.checked === undefined ? true : col.checked
-			}))
-		},
-		{ deep: true, immediate: true }
 	)
 
 	// 表格props
@@ -362,7 +357,6 @@
 		}
 		return tableProps
 	})
-
 	// 右上角工具数组
 	const tool = [
 		{
@@ -385,6 +379,13 @@
 		}
 	]
 
+	// 初始化防抖函数，避免高频更新表格props
+	const initDebouncedGetTableProps = () => {
+		debouncedGetTableProps = debounce(() => {
+			getTableProps()
+		}, 100)
+	}
+
 	// 刷新
 	const refresh = (bool = false) => {
 		bool &&
@@ -396,25 +397,28 @@
 				}
 			))
 		loadData()
-		getTableProps()
+		debouncedGetTableProps()
 	}
 	// 斑马纹勾选
 	const changeRowClass = (v) => {
 		data.localSettings.rowClassNameSwitch = v.target.checked
-		getTableProps()
+		debouncedGetTableProps()
 	}
 	// 密度切换
 	const changeHeight = (v) => {
 		data.customSize = v.key
-		getTableProps()
+		debouncedGetTableProps()
 	}
 	// 列设置
 	const columnChange = (v) => {
 		data.columnsSetting = v
 		data.localColumns = v.filter((value) => value.checked === undefined || value.checked)
-		getTableProps() // 调用getTableProps以确保表格重新渲染
+		debouncedGetTableProps() // 防抖调用确保表格重新渲染
 	}
 	const init = () => {
+		// 初始化防抖函数
+		initDebouncedGetTableProps()
+		
 		const { current } = route.params
 		const localPageNum = (current && parseInt(current)) || props.pageNum
 		data.localPagination =
@@ -542,7 +546,7 @@
 					} else {
 						data.localDataSource = r.records
 					}
-					getTableProps()
+					debouncedGetTableProps()
 				})
 				.catch(() => {})
 				.finally(() => {
@@ -605,7 +609,7 @@
 			// 通知父组件更新
 			emit('onSelectionChange', selectedRowKeys, selectedRows)
 			// 更新表格属性
-			getTableProps()
+			debouncedGetTableProps()
 			// 更新统计数据
 			data.needTotalList = initTotalList(props.columns)
 			data.needTotalList.forEach((item) => {

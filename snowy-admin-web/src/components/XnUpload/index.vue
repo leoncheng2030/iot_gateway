@@ -219,59 +219,55 @@
 			}
 		}
 	}
-	// 处理回显
+	// 处理回显 - 使用策略模式优化嵌套条件
+	const echoStrategies = {
+		interval_id: (newVal) => {
+			newVal.split(',').forEach((id) => {
+				const file = buildFileObject(undefined, id)
+				fileList.value.push(file)
+				fileList.value.reverse()
+			})
+		},
+		interval_url: (newVal) => {
+			newVal.split(',').forEach((url) => {
+				const file = buildFileObject(url)
+				fileList.value.push(file)
+				fileList.value.reverse()
+			})
+		},
+		array_id_complete: (newVal) => {
+			let newResult = cloneDeep(newVal)
+			newResult.forEach((e) => {
+				delete e.thumbUrl // 去掉base64的thumbUrl
+				e.url = sysConfig.API_URL + props.uploadIdDownloadUrl + e.response.data
+			})
+			fileList.value = newResult
+		},
+		array_url_complete: (newVal) => {
+			let newResult = cloneDeep(newVal)
+			newResult.forEach((e) => {
+				delete e.thumbUrl
+				e.url = e.response.data
+			})
+			fileList.value = newResult
+		},
+		array_id: (newVal) => {
+			newVal.forEach((id) => {
+				fileList.value.push(buildFileObject(undefined, id))
+			})
+		},
+		array_url: (newVal) => {
+			newVal.forEach((url) => {
+				fileList.value.push(buildFileObject(url))
+			})
+		}
+	}
+
 	const echo = (newVal) => {
-		// 字符串隔离情况
-		if (props.uploadResultCategory === 'interval') {
-			// id隔离
-			if (props.uploadResultType === 'id') {
-				newVal.split(',').forEach((id) => {
-					const file = buildFileObject(undefined, id)
-					fileList.value.push(file)
-					fileList.value.reverse()
-				})
-			}
-			// url隔离
-			if (props.uploadResultType === 'url') {
-				newVal.split(',').forEach((url) => {
-					const file = buildFileObject(url)
-					fileList.value.push(file)
-					fileList.value.reverse()
-				})
-			}
-		}
-		// 如果是数组的情况下
-		if (props.uploadResultCategory === 'array') {
-			if (props.completeResult) {
-				// 得去掉数组里面的thumbUrl，一个base64太大，无用
-				let newResult = cloneDeep(newVal)
-				newResult.map((e) => {
-					if (e.thumbUrl) {
-						delete e.thumbUrl
-					}
-					if (props.uploadResultType === 'id') {
-						e.url = sysConfig.API_URL + props.uploadIdDownloadUrl + e.response.data
-					}
-					if (props.uploadResultType === 'url') {
-						e.url = e.response.data
-					}
-				})
-				fileList.value = newResult
-			} else {
-				// id数组
-				if (props.uploadResultType === 'id') {
-					newVal.forEach((id) => {
-						fileList.value.push(buildFileObject(undefined, id))
-					})
-				}
-				// url数组
-				if (props.uploadResultType === 'url') {
-					newVal.forEach((url) => {
-						fileList.value.push(buildFileObject(url))
-					})
-				}
-			}
-		}
+		// 根据配置组合key获取对应策略
+		const key = `${props.uploadResultCategory}_${props.uploadResultType}${props.completeResult ? '_complete' : ''}`
+		const strategy = echoStrategies[key]
+		strategy?.(newVal)
 	}
 	// 监听参数
 	watch(
@@ -288,14 +284,11 @@
 	watch(
 		() => props.uploadMode,
 		(newVal) => {
-			if (newVal && newVal === 'image') {
-				if (props.accept) {
-					accept.value = props.accept
-				} else {
-					accept.value = 'image/*'
-				}
-			} else {
+			// 简化逻辑：优先使用传入的accept，否则根据mode自动设置
+			if (props.accept) {
 				accept.value = props.accept
+			} else {
+				accept.value = newVal === 'image' ? 'image/*' : ''
 			}
 		},
 		{ immediate: true, deep: true }
@@ -305,21 +298,29 @@
 		strokeWidth: 5,
 		format: (percent) => parseFloat(percent.toFixed(2)) + '%'
 	}
-	// 这是兜底逻辑，保准只让这个image类型上传图片
+
+	// 文件类型验证配置
+	const fileTypeValidators = {
+		image: (file) => ({
+			isValid: file.type.startsWith('image/'),
+			message: '只能上传图片类型文件'
+		}),
+		video: (file) => ({
+			isValid: file.type.startsWith('video/'),
+			message: '只能上传视频类型文件'
+		})
+	}
+
+	// 统一的文件验证逻辑
 	const beforeUpload = (file) => {
-		if (props.uploadMode == 'image') {
-			const isPNG = file.type.startsWith('image/')
-			if (!isPNG) {
-				message.warning('只能上传图片类型文件')
-			}
-			return isPNG || Upload.LIST_IGNORE
-		} else if (props.uploadMode == 'video') {
-			const isVideo = file.type.startsWith('video/')
-			if (!isVideo) {
-				message.warning('只能上传视频类型文件')
-			}
-			return isVideo || Upload.LIST_IGNORE
+		const validator = fileTypeValidators[props.uploadMode]
+		if (!validator) return true
+
+		const { isValid, message: msg } = validator(file)
+		if (!isValid) {
+			message.warning(msg)
 		}
+		return isValid || Upload.LIST_IGNORE
 	}
 	// 预览资源
 	const handlePreview = async (file) => {
@@ -338,50 +339,44 @@
 		previewTitle.value = ''
 		previewObj.value = ''
 	}
+
+	// 获取上传结果值
+	const getUploadResult = (resultData) => {
+		if (props.uploadResultCategory === 'interval') {
+			const values = resultData.map(data => data.response.data)
+			return values.join(',')
+		} else if (props.uploadResultCategory === 'array') {
+			if (props.completeResult) {
+				// 移除thumbUrl并保留完整对象
+				return resultData.map((e) => {
+					const item = cloneDeep(e)
+					delete item.thumbUrl
+					return item
+				})
+			} else {
+				return resultData.map(data => data.response.data)
+			}
+		}
+	}
+
+	// 发送上传事件
+	const emitUploadResult = (resultValue) => {
+		emit('update:value', resultValue)
+		emit('onSuccessful', resultValue)
+		emit('onChange', resultValue)
+	}
+
 	// 上传事件
 	const handleChange = (uploads) => {
-		let result = []
 		const file = uploads.file
-		if (file && (file.status === 'done' || file.status === 'removed') && file.response && file.response.code === 200) {
-			uploads.fileList.forEach((f) => {
-				result.push(f)
-			})
-		}
-		if (result.length > 0) {
-			if (props.uploadResultCategory === 'interval') {
-				const resultIntervalValue = ref('')
-				result.forEach((data) => {
-					resultIntervalValue.value =
-						data.response.data + (resultIntervalValue.value ? ',' + resultIntervalValue.value : '')
-				})
-				emit('update:value', resultIntervalValue)
-				emit('onSuccessful', resultIntervalValue)
-				emit('onChange', resultIntervalValue)
-			} else if (props.uploadResultCategory === 'array') {
-				if (props.completeResult) {
-					// 得去掉数组里面的thumbUrl，一个base64太大，无用
-					let newResult = cloneDeep(result)
-					newResult.map((e) => {
-						if (e.thumbUrl) {
-							delete e.thumbUrl
-						}
-					})
-					emit('update:value', newResult)
-					emit('onSuccessful', newResult)
-					emit('onChange', newResult)
-				} else {
-					const resultArrayValue = ref([])
-					result.forEach((data) => {
-						resultArrayValue.value.push(data.response.data)
-					})
-					emit('update:value', resultArrayValue)
-					emit('onSuccessful', resultArrayValue)
-					emit('onChange', resultArrayValue)
-				}
+		if (file && (file.status === 'done' || file.status === 'removed') && file.response?.code === 200) {
+			const resultValue = getUploadResult(uploads.fileList)
+			if (resultValue) {
+				emitUploadResult(resultValue)
+				return
 			}
-			return
 		}
-		emit('update:value', undefined)
+		emitUploadResult(undefined)
 		emit('onChange', undefined)
 	}
 	// 通过DOM获取上传的文件

@@ -25,8 +25,10 @@
 </template>
 
 <script setup>
-	import { useSlots, computed, useAttrs, onMounted, onUnmounted } from 'vue'
+	import { useSlots, computed, useAttrs, onMounted, onUnmounted, ref } from 'vue'
 	import { globalStore } from '@/store'
+	import { debounce } from 'lodash-es'
+
 	const slots = useSlots()
 	const attrs = useAttrs()
 	const store = globalStore()
@@ -37,35 +39,27 @@
 			required: false
 		}
 	})
+
 	const FormContainerTypeEnum = {
 		DRAWER: 'drawer',
 		MODAL: 'modal'
 	}
-	const formStyle = computed(() => {
-		return store.formStyle
-	})
-	const slotKeys = computed(() => {
-		return Object.keys(slots)
-	})
-	const isModal = computed(() => {
-		return FormContainerTypeEnum.MODAL === formStyle.value
-	})
 
-	// 响应式抽屉宽度
+	const formStyle = computed(() => store.formStyle)
+	const slotKeys = computed(() => Object.keys(slots))
+	const isModal = computed(() => FormContainerTypeEnum.MODAL === formStyle.value)
+
+	// 响应式抽屉宽度 - 使用防抖处理窗口大小变化
 	const isSmallScreen = ref(window.innerWidth <= 768)
-	const drawerWidth = computed(() => {
-		return isSmallScreen.value ? '100%' : attrs.width // 小屏幕100%宽度，其他情况使用默认值
-	})
+	const drawerWidth = computed(() => isSmallScreen.value ? '100%' : attrs.width)
 
 	const emit = defineEmits(['close'])
-	const cancel = () => {
-		emit('close')
-	}
+	const cancel = () => emit('close')
 
-	// 监听窗口大小变化
-	const handleResize = () => {
+	// 防抖处理窗口大小变化，避免频繁更新
+	const handleResize = debounce(() => {
 		isSmallScreen.value = window.innerWidth <= 768
-	}
+	}, 250)
 
 	onMounted(() => {
 		window.addEventListener('resize', handleResize)
