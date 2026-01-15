@@ -29,7 +29,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import vip.xiaonuo.auth.core.enums.SaClientTypeEnum;
-import vip.xiaonuo.auth.core.util.StpClientLoginUserUtil;
 import vip.xiaonuo.auth.core.util.StpLoginUserUtil;
 import vip.xiaonuo.common.cache.CommonCacheOperator;
 import vip.xiaonuo.common.consts.CacheConstant;
@@ -101,12 +100,8 @@ public class AuthConfigure implements WebMvcConfigurer {
          */
         @Override
         public List<String> getPermissionList(Object loginId, String loginType) {
-            Object permissionListObject;
-            if (SaClientTypeEnum.B.getValue().equals(loginType)) {
-                permissionListObject = commonCacheOperator.get(CacheConstant.AUTH_B_PERMISSION_LIST_CACHE_KEY + loginId);
-            } else {
-                permissionListObject = commonCacheOperator.get(CacheConstant.AUTH_C_PERMISSION_LIST_CACHE_KEY + loginId);
-            }
+            // 边缘网关只支持B端，直接返回B端权限列表
+            Object permissionListObject = commonCacheOperator.get(CacheConstant.AUTH_B_PERMISSION_LIST_CACHE_KEY + loginId);
             // 转为字符串
             String permissionListString = permissionListObject.toString();
             // 去除首尾的方括号
@@ -120,11 +115,8 @@ public class AuthConfigure implements WebMvcConfigurer {
          */
         @Override
         public List<String> getRoleList(Object loginId, String loginType) {
-            if (SaClientTypeEnum.B.getValue().equals(loginType)) {
-                return StpLoginUserUtil.getLoginUser().getRoleCodeList();
-            } else {
-                return StpClientLoginUserUtil.getClientLoginUser().getRoleCodeList();
-            }
+            // 边缘网关只支持B端，直接返回B端角色列表
+            return StpLoginUserUtil.getLoginUser().getRoleCodeList();
         }
     }
 }

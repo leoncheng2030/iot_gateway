@@ -24,7 +24,6 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import vip.xiaonuo.auth.api.AuthApi;
 import vip.xiaonuo.auth.core.enums.SaClientTypeEnum;
-import vip.xiaonuo.auth.core.util.StpClientUtil;
 import vip.xiaonuo.auth.modular.login.enums.AuthDeviceTypeEnum;
 import vip.xiaonuo.auth.modular.login.enums.AuthStrategyWhenNoUserWithPhoneOrEmailEnum;
 import vip.xiaonuo.auth.modular.login.param.AuthAccountPasswordLoginParam;
@@ -63,19 +62,9 @@ public class AuthApiProvider implements AuthApi {
             return jsonObject;
         }).toList();
 
-        List<JSONObject> sessionListC = StpClientUtil.searchSessionId("", -1, -1, true).stream().map(sessionId -> {
-            JSONObject jsonObject = JSONUtil.createObj();
-            String userId = StrUtil.split(sessionId, StrUtil.COLON).get(3);
-            SaSession saSession = StpClientUtil.getSessionByLoginId(userId, false);
-            int tokenCount = saSession.getTerminalList().size();
-            long createTime = saSession.getCreateTime();
-            jsonObject.set("userId", userId);
-            jsonObject.set("tokenCount", tokenCount);
-            jsonObject.set("createTime", DateTime.of(createTime));
-            return jsonObject;
-        }).toList();
+        // 边缘网关不支持C端，sessionListC 为空
         resultObj.set("backUserSessionCount" ,sessionListB.size());
-        resultObj.set("clientUserSessionCount" ,sessionListC.size());
+        resultObj.set("clientUserSessionCount" ,0);
         return resultObj;
     }
 

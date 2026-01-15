@@ -69,7 +69,6 @@ import org.springframework.util.ResourceUtils;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import vip.xiaonuo.auth.core.util.StpClientUtil;
 import vip.xiaonuo.common.annotation.CommonNoRepeat;
 import vip.xiaonuo.common.annotation.CommonWrapper;
 import vip.xiaonuo.common.cache.CommonCacheOperator;
@@ -125,16 +124,6 @@ public class GlobalConfigure implements WebMvcConfigurer {
             "/mobile/**",
 
             /* 认证相关 */
-            "/auth/c/getPicCaptcha",
-            "/auth/c/getPhoneValidCode",
-            "/auth/c/doLogin",
-            "/auth/c/doLoginByPhone",
-            "/auth/c/register",
-            "/auth/c/getEmailValidCode",
-            "/auth/c/doLoginByEmail",
-            "/auth/c/doLoginByOtp",
-            "/auth/c/isLogin",
-
             "/auth/b/getPicCaptcha",
             "/auth/b/getPhoneValidCode",
             "/auth/b/doLogin",
@@ -144,7 +133,6 @@ public class GlobalConfigure implements WebMvcConfigurer {
             "/auth/b/doLoginByEmail",
             "/auth/b/doLoginByOtp",
             "/auth/b/isLogin",
-            "/auth/sso/b/**",
 
             /* 三方登录相关 */
             "/auth/third/render",
@@ -242,14 +230,6 @@ public class GlobalConfigure implements WebMvcConfigurer {
     };
 
     /**
-     * B端要排除的，相当于C端要认证的
-     */
-    private static final String[] CLIENT_USER_PERMISSION_PATH_ARR = {
-            "/auth/c/**",
-            "/client/c/**"
-    };
-
-    /**
      * 注册跨域过滤器
      */
     @Bean
@@ -264,23 +244,12 @@ public class GlobalConfigure implements WebMvcConfigurer {
                     SaRouter.match("/**")
                             // 排除无需登录接口
                             .notMatch(CollectionUtil.newArrayList(NO_LOGIN_PATH_ARR))
-                            // 排除C端认证接口
-                            .notMatch(CollectionUtil.newArrayList(CLIENT_USER_PERMISSION_PATH_ARR))
                             // 校验B端登录
                             .check(r1 -> {
                                 StpUtil.checkLogin();
                                 // 更新过期时间
                                 StpUtil.renewTimeout(saTokenConfig.getTimeout());
                             });
-
-                    // C端的接口校验C端登录
-                    SaRouter.match("/**")
-                            // 排除无需登录接口
-                            .notMatch(CollectionUtil.newArrayList(NO_LOGIN_PATH_ARR))
-                            // 匹配C端认证接口
-                            .match(CollectionUtil.newArrayList(CLIENT_USER_PERMISSION_PATH_ARR))
-                            // 校验C端登录
-                            .check(r1 -> StpClientUtil.checkLogin());
 
                     // B端的超管接口校验B端超管角色
                     SaRouter.match("/**")
@@ -675,20 +644,11 @@ public class GlobalConfigure implements WebMvcConfigurer {
          */
         private String getUserId() {
             try {
-                try {
-                    String loginId = StpUtil.getLoginIdAsString();
-                    if (ObjectUtil.isNotEmpty(loginId)) {
-                        return loginId;
-                    } else {
-                        return "-1";
-                    }
-                } catch (Exception e) {
-                    String clientLoginId = StpClientUtil.getLoginIdAsString();
-                    if (ObjectUtil.isNotEmpty(clientLoginId)) {
-                        return clientLoginId;
-                    } else {
-                        return "-1";
-                    }
+                String loginId = StpUtil.getLoginIdAsString();
+                if (ObjectUtil.isNotEmpty(loginId)) {
+                    return loginId;
+                } else {
+                    return "-1";
                 }
             } catch (Exception e) {
                 return "-1";

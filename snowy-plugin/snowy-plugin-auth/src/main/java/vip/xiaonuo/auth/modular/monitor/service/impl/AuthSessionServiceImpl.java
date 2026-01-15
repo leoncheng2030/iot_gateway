@@ -29,7 +29,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 import vip.xiaonuo.auth.api.SaBaseLoginUserApi;
-import vip.xiaonuo.auth.core.util.StpClientUtil;
 import vip.xiaonuo.auth.modular.monitor.param.AuthExitSessionParam;
 import vip.xiaonuo.auth.modular.monitor.param.AuthExitTokenParam;
 import vip.xiaonuo.auth.modular.monitor.param.AuthSessionPageParam;
