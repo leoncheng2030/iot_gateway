@@ -236,6 +236,12 @@ public class S7ProtocolServer implements ProtocolServer, AddressConfigProvider {
             
             if (mappingsWithAddress.isEmpty()) {
                 log.warn("S7设备未配置属性映射（设备级和产品级都没有），跳过采集 - DeviceKey: {}", device.getDeviceKey());
+                // 没有配置的设备，也应该尝试读取一个默认地址来检测连接状态
+                // 如果连接失败，会抛出异常，进入catch块处理离线逻辑
+                byte[] testRead = s7Client.readDB(deviceId, 1, 0, 1);
+                if (testRead == null) {
+                    throw new RuntimeException("设备连接失败");
+                }
                 return;
             }
             
