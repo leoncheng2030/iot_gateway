@@ -285,7 +285,9 @@ public class S7Client {
     
             return null;
         } catch (Exception e) {
-            log.error("S7读取区域异常 - DeviceId: {}", deviceId, e);
+            log.error("S7读取区域异常 - DeviceId: {}, 错误: {}", deviceId, e.getMessage());
+            // 读取异常时，清理该设备的Socket连接
+            disconnect(deviceId);
             return null;
         }
     }
