@@ -11,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import vip.xiaonuo.iot.core.message.DeviceMessageService;
 import vip.xiaonuo.iot.core.message.RuleEngineService;
-import vip.xiaonuo.iot.core.storage.InfluxDBService;
 import vip.xiaonuo.iot.core.notification.IotNotificationService;
 import vip.xiaonuo.iot.modular.device.entity.IotDevice;
 import vip.xiaonuo.iot.modular.device.service.IotDeviceService;
@@ -29,9 +28,6 @@ public class InMemoryMessageHandlers {
 
 	@Resource
 	private InMemoryMessageQueue inMemoryMessageQueue;
-
-	@Resource
-	private InfluxDBService influxDBService;
 
 	@Resource
 	private IotDeviceService iotDeviceService;
@@ -68,21 +64,9 @@ public class InMemoryMessageHandlers {
 		public void handle(InMemoryMessageQueue.DeviceDataMessage message) {
 			log.trace("开始消费设备数据消息: DeviceKey={}", message.getDeviceKey());
 			try {
-				String deviceKey = message.getDeviceKey();
-				JSONObject data = message.getData();
-
-				// 查询设备信息
-				LambdaQueryWrapper<IotDevice> queryWrapper = new LambdaQueryWrapper<>();
-				queryWrapper.eq(IotDevice::getDeviceKey, deviceKey);
-				IotDevice device = iotDeviceService.getOne(queryWrapper);
-
-				if (device != null) {
-					// 写入InfluxDB时序数据
-					influxDBService.writeDeviceData(device, data);
-					log.debug("设备数据写入InfluxDB成功 - DeviceKey: {}", deviceKey);
-				} else {
-					log.warn("设备不存在 - DeviceKey: {}", deviceKey);
-				}
+				// 设备数据已在 DeviceDataHandler 中写入 TimeSeriesStorageService
+				// 此处不再需要额外处理，仅记录日志
+				log.debug("设备数据已在 DeviceDataHandler 中处理 - DeviceKey: {}", message.getDeviceKey());
 
 			} catch (Exception e) {
 				log.error("处理设备数据消息失败", e);

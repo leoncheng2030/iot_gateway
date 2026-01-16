@@ -17,8 +17,6 @@ import cn.hutool.core.util.NumberUtil;
 import cn.hutool.system.RuntimeInfo;
 import cn.hutool.system.SystemUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.influxdb.client.InfluxDBClient;
-import com.influxdb.query.FluxTable;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,12 +56,6 @@ public class IotStatisticsServiceImpl implements IotStatisticsService {
     @Resource
     private IotDeviceDriverMapper iotDeviceDriverMapper;
 
-    @Resource
-    private InfluxDBClient influxDBClient;
-
-    @Value("${influxdb.bucket}")
-    private String bucket;
-
     @Override
     public Map<String, Object> getDeviceStatistics() {
         Map<String, Object> result = new HashMap<>();
@@ -84,8 +76,9 @@ public class IotStatisticsServiceImpl implements IotStatisticsService {
                     .eq(IotDevice::getDeviceStatus, "OFFLINE")
             );
             
-            // 查询今日数据量（从InfluxDB）
-            Long todayDataCount = getTodayDataCount();
+            // 查询今日数据量（简化版，返回0）
+            // 注：已移除 InfluxDB，此数据需要从其他源统计
+            Long todayDataCount = 0L;
             
             result.put("totalDevices", totalDevices != null ? totalDevices : 0);
             result.put("onlineDevices", onlineDevices != null ? onlineDevices : 0);
@@ -144,8 +137,9 @@ public class IotStatisticsServiceImpl implements IotStatisticsService {
                 }
             }
             
-            // 计算通信速率（基于InfluxDB近1分钟的数据量）
-            Long communicationRate = getCommunicationRate();
+            // 计算通信速率（简化版，返回0）
+            // 注：已移除 InfluxDB，此数据需要从其他源统计
+            Long communicationRate = 0L;
             
             result.put("total", total != null ? total : 0);
             result.put("running", running != null ? running : 0);
@@ -214,8 +208,9 @@ public class IotStatisticsServiceImpl implements IotStatisticsService {
             // 生成时间标签
             List<String> timeLabels = generateTimeLabels(hours, dataPoints);
             
-            // 从InfluxDB查询数据采集速率
-            List<Long> rateData = getDataRateByTimeRange(hours, intervalMinutes, dataPoints);
+            // 从 TimeSeriesStorageService 查询数据量（简化版，返回模拟数据）
+            // 注：实际需要根据业务需求实现统计逻辑
+            List<Long> rateData = generateMockRateData(dataPoints);
             
             // 计算成功率（简化版，假设成功率在95-100之间）
             List<Double> successRateData = new ArrayList<>();
@@ -325,113 +320,15 @@ public class IotStatisticsServiceImpl implements IotStatisticsService {
         return result;
     }
 
-    /**
-     * 获取今日数据量
-     */
-    private Long getTodayDataCount() {
-        try {
-            String query = String.format(
-                "from(bucket:\"%s\") " +
-                "|> range(start: -24h) " +
-                "|> filter(fn: (r) => r[\"_measurement\"] == \"device_data\") " +
-                "|> count()",
-                bucket
-            );
-            
-            List<FluxTable> tables = influxDBClient.getQueryApi().query(query);
-            if (tables != null && !tables.isEmpty()) {
-                for (FluxTable table : tables) {
-                    if (!table.getRecords().isEmpty()) {
-                        Object value = table.getRecords().get(0).getValue();
-                        if (value instanceof Number) {
-                            return ((Number) value).longValue();
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("查询今日数据量失败", e);
-        }
-        return 0L;
-    }
 
     /**
-     * 获取通信速率（每秒数据条数）
+     * 生成模拟数据速率（临时方案）
      */
-    private Long getCommunicationRate() {
-        try {
-            String query = String.format(
-                "from(bucket:\"%s\") " +
-                "|> range(start: -1m) " +
-                "|> filter(fn: (r) => r[\"_measurement\"] == \"device_data\") " +
-                "|> count()",
-                bucket
-            );
-            
-            List<FluxTable> tables = influxDBClient.getQueryApi().query(query);
-            if (tables != null && !tables.isEmpty()) {
-                for (FluxTable table : tables) {
-                    if (!table.getRecords().isEmpty()) {
-                        Object value = table.getRecords().get(0).getValue();
-                        if (value instanceof Number) {
-                            // 转换为每秒速率
-                            return ((Number) value).longValue() / 60;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("查询通信速率失败", e);
-        }
-        return 0L;
-    }
-
-    /**
-     * 根据时间范围获取数据速率
-     */
-    private List<Long> getDataRateByTimeRange(int hours, int intervalMinutes, int dataPoints) {
+    private List<Long> generateMockRateData(int dataPoints) {
         List<Long> result = new ArrayList<>();
-        
-        try {
-            String query = String.format(
-                "from(bucket:\"%s\") " +
-                "|> range(start: -%dh) " +
-                "|> filter(fn: (r) => r[\"_measurement\"] == \"device_data\") " +
-                "|> aggregateWindow(every: %dm, fn: count, createEmpty: false)",
-                bucket, hours, intervalMinutes
-            );
-            
-            List<FluxTable> tables = influxDBClient.getQueryApi().query(query);
-            if (!tables.isEmpty()) {
-                for (FluxTable table : tables) {
-                    List<Long> finalResult = result;
-                    table.getRecords().forEach(record -> {
-                        Object value = record.getValue();
-                        if (value instanceof Number) {
-                            // 转换为每秒速率
-                            finalResult.add(((Number) value).longValue() / (intervalMinutes * 60L));
-                        }
-                    });
-                }
-            }
-            
-            // 补齐数据点
-            while (result.size() < dataPoints) {
-                result.add(0L);
-            }
-            
-            // 限制数据点数量
-            if (result.size() > dataPoints) {
-                result = result.subList(result.size() - dataPoints, result.size());
-            }
-        } catch (Exception e) {
-            log.error("查询数据速率失败", e);
-            // 返回默认数据
-            for (int i = 0; i < dataPoints; i++) {
-                result.add(0L);
-            }
+        for (int i = 0; i < dataPoints; i++) {
+            result.add(0L);
         }
-        
         return result;
     }
 

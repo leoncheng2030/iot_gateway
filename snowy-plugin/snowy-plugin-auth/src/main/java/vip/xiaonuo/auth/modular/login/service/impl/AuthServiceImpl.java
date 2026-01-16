@@ -571,6 +571,13 @@ public class AuthServiceImpl implements AuthService {
         }
         // 执行登录
         StpUtil.login(saBaseLoginUser.getId(), new SaLoginParameter().setDeviceType(device).setExtra("name", saBaseLoginUser.getName()));
+        
+        // ========== [调试日志] 验证Sa-Token使用的DAO类型 ==========
+        System.out.println("[Sa-Token登录调试] 用户ID: " + saBaseLoginUser.getId());
+        System.out.println("[Sa-Token登录调试] Token值: " + StpUtil.getTokenValue());
+        System.out.println("[Sa-Token登录调试] SaTokenDao类型: " + cn.dev33.satoken.SaManager.getSaTokenDao().getClass().getName());
+        System.out.println("[Sa-Token登录调试] Session是否存在: " + StpUtil.getTokenSession().getId());
+        
         // 填充B端用户信息并更新缓存
         fillSaBaseLoginUserAndUpdateCache(saBaseLoginUser);
         // 返回token

@@ -118,6 +118,12 @@
             <groupId>vip.xiaonuo</groupId>
             <artifactId>snowy-plugin-iot</artifactId>
         </dependency>
+
+        <!-- Sa-Token 整合 RedisTemplate -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-redis-template</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>

@@ -46,7 +46,6 @@ import vip.xiaonuo.iot.modular.devicedata.param.IotDeviceDataEditParam;
 import vip.xiaonuo.iot.modular.devicedata.param.IotDeviceDataIdParam;
 import vip.xiaonuo.iot.modular.devicedata.param.IotDeviceDataPageParam;
 import vip.xiaonuo.iot.modular.devicedata.service.IotDeviceDataService;
-import vip.xiaonuo.iot.core.storage.InfluxDBService;
 
 import vip.xiaonuo.common.util.CommonDownloadUtil;
 import vip.xiaonuo.common.util.CommonResponseUtil;
@@ -66,12 +65,9 @@ import java.util.stream.Collectors;
 @Service
 public class IotDeviceDataServiceImpl extends ServiceImpl<IotDeviceDataMapper, IotDeviceData> implements IotDeviceDataService {
 
-    @Resource
-    private InfluxDBService influxDBService;
-
     @Override
     public Page<IotDeviceData> page(IotDeviceDataPageParam iotDeviceDataPageParam) {
-        // 只从 MySQL 查询事件和指令数据（PROPERTY 类型的数据已在 InfluxDB 中）
+        // 只从 MySQL 查询事件和指令数据（PROPERTY 类型的数据已在 TimeSeriesStorageService 中）
         QueryWrapper<IotDeviceData> queryWrapper = new QueryWrapper<IotDeviceData>().checkSqlInjection();
         if(ObjectUtil.isNotEmpty(iotDeviceDataPageParam.getDeviceId())) {
             queryWrapper.lambda().eq(IotDeviceData::getDeviceId, iotDeviceDataPageParam.getDeviceId());
@@ -236,7 +232,9 @@ public class IotDeviceDataServiceImpl extends ServiceImpl<IotDeviceDataMapper, I
 
     @Override
     public List<JSONObject> getChartData(String deviceId) {
-        // 从InfluxDB查询最近24小时的数据
-        return influxDBService.getChartData(deviceId, 24);
+        // 注：已移除 InfluxDB，返回空列表
+        // 实际使用中需要从 TimeSeriesStorageService 查询
+        log.warn("图表数据查询功能已禁用，需要重新实现");
+        return new ArrayList<>();
     }
 }

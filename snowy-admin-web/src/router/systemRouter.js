@@ -13,7 +13,7 @@ import tool from '@/utils/tool'
 import routerUtil from '@/utils/routerUtil'
 
 const Layout = () => import('@/layout/index.vue')
-const Sso = () => import('@/views/auth/sso/index.vue')
+// const Sso = () => import('@/views/auth/sso/index.vue')  // 边缘网关不需要SSO
 const Login = () => import('@/views/auth/login/login.vue')
 const FindPwd = () => import('@/views/auth/findPwd/index.vue')
 const Callback = () => import('@/views/auth/login/callback.vue')
@@ -28,13 +28,13 @@ const routes = [
 		redirect: tool.data.get('MENU') ? routerUtil.getIndexMenu(tool.data.get('MENU')).path : config.DASHBOARD_URL,
 		children: []
 	},
-	{
-		path: '/sso',
-		component: Sso,
-		meta: {
-			title: '单点登录'
-		}
-	},
+	// {
+	// 	path: '/sso',
+	// 	component: Sso,
+	// 	meta: {
+	// 		title: '单点登录'
+	// 	}
+	// },
 	{
 		path: '/login',
 		component: Login,

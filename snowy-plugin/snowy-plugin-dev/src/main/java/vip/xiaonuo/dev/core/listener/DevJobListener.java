@@ -20,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
 import vip.xiaonuo.common.exception.CommonException;
 import vip.xiaonuo.common.timer.CommonTimerTaskRunner;
@@ -37,16 +39,31 @@ import vip.xiaonuo.dev.modular.job.service.DevJobService;
 @Configuration
 public class DevJobListener implements ApplicationListener<ApplicationStartedEvent>, Ordered {
 
+    /** 标记容器是否正在销毁 */
+    private volatile boolean destroying = false;
+
     @Override
     public void onApplicationEvent(@NonNull ApplicationStartedEvent applicationStartedEvent) {
         SpringUtil.getBean(DevJobService.class).list(new LambdaQueryWrapper<DevJob>()
                 .eq(DevJob::getJobStatus, DevJobStatusEnum.RUNNING.getValue()).orderByAsc(DevJob::getSortCode))
                 .forEach(devJob -> CronUtil.schedule(devJob.getId(), devJob.getCronExpression(), () -> {
+                    // 容器销毁时不执行任务
+                    if (destroying) {
+                        log.debug("容器正在销毁，跳过定时任务: {}", devJob.getName());
+                        return;
+                    }
                     try {
                         // 运行定时任务
                         ((CommonTimerTaskRunner) SpringUtil.getBean(Class.forName(devJob.getActionClass()))).action(devJob.getExtJson());
                     } catch (ClassNotFoundException e) {
                         throw new CommonException("定时任务找不到对应的类，名称为：{}", devJob.getActionClass());
+                    } catch (Exception e) {
+                        // 容器销毁时的异常静默处理
+                        if (destroying) {
+                            log.debug("容器销毁期间的任务异常，忽略: {}", e.getMessage());
+                        } else {
+                            throw e;
+                        }
                     }
                 }));
         // 设置秒级别的启用
@@ -58,5 +75,27 @@ public class DevJobListener implements ApplicationListener<ApplicationStartedEve
     @Override
     public int getOrder() {
         return LOWEST_PRECEDENCE;
+    }
+
+    /**
+     * 监听容器关闭事件，在容器开始关闭时立即停止调度器
+     * 这比 DisposableBean 更早执行，确保在任何 Bean 销毁前停止调度器
+     */
+    @EventListener(ContextClosedEvent.class)
+    public void onContextClosed() {
+        try {
+            log.info("检测到容器关闭事件，开始停止 Hutool Cron 调度器...");
+            
+            // 标记容器正在关闭
+            destroying = true;
+            
+            // 立即停止调度器
+            if (CronUtil.getScheduler() != null) {
+                CronUtil.getScheduler().stop();
+                log.info("Hutool Cron 调度器已停止");
+            }
+        } catch (Exception e) {
+            log.warn("停止 Hutool Cron 调度器异常", e);
+        }
     }
 }

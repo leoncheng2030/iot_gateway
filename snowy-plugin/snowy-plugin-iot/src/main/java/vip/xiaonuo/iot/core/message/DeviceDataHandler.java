@@ -33,7 +33,6 @@ import vip.xiaonuo.iot.modular.devicedriverrel.entity.IotDeviceDriverRel;
 import vip.xiaonuo.iot.modular.devicedriverrel.service.IotDeviceDriverRelService;
 import vip.xiaonuo.iot.modular.deviceshadow.entity.IotDeviceShadow;
 import vip.xiaonuo.iot.modular.deviceshadow.service.IotDeviceShadowService;
-import vip.xiaonuo.iot.core.storage.InfluxDBService;
 import vip.xiaonuo.iot.core.storage.TimeSeriesStorageService;
 import vip.xiaonuo.iot.core.analytics.WindowAggregator;
 import vip.xiaonuo.iot.core.analytics.AnomalyDetector;
@@ -69,9 +68,6 @@ public class DeviceDataHandler {
 
     @Resource
     private DevSseApi devSseApi;
-
-    @Resource
-    private InfluxDBService influxDBService;
 
     @Resource
     private TimeSeriesStorageService timeSeriesStorageService;
@@ -322,10 +318,7 @@ public class DeviceDataHandler {
                         }
                     });
 
-                    // 4.2 写入InfluxDB（保持兼容，可通过配置开关）
-                    influxDBService.writeDeviceData(device, data);
-
-                    // 4.3 更新设备影子
+                    // 4.2 更新设备影子
                     updateDeviceShadow(device.getId(), data);
                 } catch (Exception e) {
                     log.error("异步任务异常 - DeviceId: {}", device.getId(), e);
