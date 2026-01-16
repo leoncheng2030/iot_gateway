@@ -34,6 +34,9 @@ import vip.xiaonuo.iot.modular.devicedriverrel.service.IotDeviceDriverRelService
 import vip.xiaonuo.iot.modular.deviceshadow.entity.IotDeviceShadow;
 import vip.xiaonuo.iot.modular.deviceshadow.service.IotDeviceShadowService;
 import vip.xiaonuo.iot.core.storage.InfluxDBService;
+import vip.xiaonuo.iot.core.storage.TimeSeriesStorageService;
+import vip.xiaonuo.iot.core.analytics.WindowAggregator;
+import vip.xiaonuo.iot.core.analytics.AnomalyDetector;
 import vip.xiaonuo.iot.core.mq.MessageProducer;
 import vip.xiaonuo.iot.modular.northbound.service.NorthboundPushService;
 
@@ -69,6 +72,15 @@ public class DeviceDataHandler {
 
     @Resource
     private InfluxDBService influxDBService;
+
+    @Resource
+    private TimeSeriesStorageService timeSeriesStorageService;
+
+    @Resource
+    private WindowAggregator windowAggregator;
+
+    @Resource
+    private AnomalyDetector anomalyDetector;
 
     @Resource
     private MessageProducer messageProducer;
@@ -285,13 +297,35 @@ public class DeviceDataHandler {
                 log.debug("设备数据未变化，跳过北向推送 - DeviceId: {}", device.getId());
             }
             
-            // 4. 异步写入InfluxDB和更新影子
+            // 4. 异步写入时序存储、窗口聚合、异常检测和更新影子
+            long timestamp = System.currentTimeMillis();
             sseExecutor.submit(() -> {
                 try {
-                    // 写入InfluxDB（时序数据）
+                    // 4.1 写入分层时序存储（热数据层）
+                    data.forEach((key, value) -> {
+                        if (value instanceof Number) {
+                            double numValue = ((Number) value).doubleValue();
+                            // 写入时序存储
+                            timeSeriesStorageService.write(device.getId(), key, numValue, timestamp);
+                            
+                            // 添加到窗口聚合器
+                            windowAggregator.addDataPoint(device.getId(), key, numValue, timestamp);
+                            
+                            // 执行异常检测
+                            AnomalyDetector.AnomalyResult anomalyResult = 
+                                anomalyDetector.detect(device.getId(), key, numValue);
+                            
+                            if (anomalyResult.isAnomaly()) {
+                                // 发送异常告警
+                                handleAnomalyDetected(device, key, numValue, anomalyResult);
+                            }
+                        }
+                    });
+
+                    // 4.2 写入InfluxDB（保持兼容，可通过配置开关）
                     influxDBService.writeDeviceData(device, data);
 
-                    // 更新设备影子
+                    // 4.3 更新设备影子
                     updateDeviceShadow(device.getId(), data);
                 } catch (Exception e) {
                     log.error("异步任务异常 - DeviceId: {}", device.getId(), e);
@@ -300,6 +334,70 @@ public class DeviceDataHandler {
             
         } catch (Exception e) {
             log.error("处理属性数据失败 - DeviceId: {}", device.getId(), e);
+        }
+    }
+
+    /**
+     * 处理异常检测告警
+     */
+    private void handleAnomalyDetected(IotDevice device, String propertyKey, 
+                                       double value, AnomalyDetector.AnomalyResult result) {
+        try {
+            log.warn("检测到设备数据异常 - DeviceId: {}, Property: {}, Value: {}, Reason: {}",
+                device.getId(), propertyKey, value, result.getReason());
+            
+            // 构建告警数据
+            JSONObject alarmData = JSONUtil.createObj()
+                .set("deviceId", device.getId())
+                .set("deviceKey", device.getDeviceKey())
+                .set("deviceName", device.getDeviceName())
+                .set("propertyKey", propertyKey)
+                .set("currentValue", value)
+                .set("mean", result.getMean())
+                .set("stdDev", result.getStdDev())
+                .set("lowerBound", result.getLowerBound())
+                .set("upperBound", result.getUpperBound())
+                .set("algorithm", result.getAlgorithm())
+                .set("reason", result.getReason())
+                .set("timestamp", System.currentTimeMillis());
+            
+            // 发送异常告警到消息队列
+            messageProducer.sendAlarm("DATA_ANOMALY", alarmData, 6);
+            
+            // 推送异常告警到前端
+            pushAnomalyAlertToFrontend(device, propertyKey, value, result);
+            
+        } catch (Exception e) {
+            log.error("处理异常检测告警失败 - DeviceId: {}", device.getId(), e);
+        }
+    }
+
+    /**
+     * 推送异常告警到前端
+     */
+    private void pushAnomalyAlertToFrontend(IotDevice device, String propertyKey, 
+                                            double value, AnomalyDetector.AnomalyResult result) {
+        try {
+            JSONObject message = JSONUtil.createObj()
+                .set("type", "anomalyAlert")
+                .set("deviceId", device.getId())
+                .set("deviceKey", device.getDeviceKey())
+                .set("deviceName", device.getDeviceName())
+                .set("propertyKey", propertyKey)
+                .set("currentValue", value)
+                .set("reason", result.getReason())
+                .set("algorithm", result.getAlgorithm())
+                .set("timestamp", System.currentTimeMillis());
+
+            sseExecutor.submit(() -> {
+                try {
+                    devSseApi.sendMessageToAllClient(message.toString());
+                } catch (Exception e) {
+                    // 静默处理
+                }
+            });
+        } catch (Exception e) {
+            // 静默处理
         }
     }
 

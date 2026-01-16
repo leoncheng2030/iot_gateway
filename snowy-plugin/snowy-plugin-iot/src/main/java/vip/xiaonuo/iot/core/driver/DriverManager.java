@@ -25,6 +25,9 @@ import vip.xiaonuo.iot.core.driver.impl.LoraGatewayDriver;
 import vip.xiaonuo.iot.core.driver.impl.ZigbeeGatewayDriver;
 import vip.xiaonuo.iot.core.driver.impl.OpcUaDriver;
 import vip.xiaonuo.iot.core.driver.impl.CustomDriver;
+import vip.xiaonuo.iot.core.driver.spi.DriverSpiLoader;
+import vip.xiaonuo.iot.core.driver.spi.DriverProvider;
+import vip.xiaonuo.iot.core.driver.spi.ExternalDriverLoader;
 
 import java.util.Map;
 import java.util.HashMap;
@@ -58,6 +61,12 @@ public class DriverManager {
     @Autowired
     private AutowireCapableBeanFactory autowireCapableBeanFactory;
 
+    @Resource
+    private DriverSpiLoader driverSpiLoader;
+
+    @Resource
+    private ExternalDriverLoader externalDriverLoader;
+
     /** 启动时是否自动加载驱动 */
     @Value("${iot.driver.auto-start:true}")
     private boolean autoStart;
@@ -73,6 +82,19 @@ public class DriverManager {
      */
     @PostConstruct
     public void init() {
+        // 加载外部驱动JAR（从drivers目录）
+        try {
+            Map<String, java.util.List<String>> loadedDrivers = externalDriverLoader.loadDefaultDirectory();
+            if (!loadedDrivers.isEmpty()) {
+                log.info("加载外部驱动完成: {}", loadedDrivers);
+            }
+        } catch (Exception e) {
+            log.warn("加载外部驱动失败", e);
+        }
+        
+        // 输出所有可用驱动类型
+        log.info("可用驱动类型: {}", driverSpiLoader.getAllDriverTypes());
+        
         // 检查是否开启自动启动
         if (!autoStart) {
             log.info("驱动自动启动已禁用，跳过加载（可通过前端手动启动）");
@@ -130,12 +152,29 @@ public class DriverManager {
 
     /**
      * 根据驱动类型创建驱动实例
+     * 优先使用SPI机制，回退到注解扫描方式
      */
     private DeviceDriver createDriver(String driverType, DriverConfig config) {
-        // 从注册中心获取驱动类
+        // 1. 优先从SPI加载的驱动提供者创建
+        DriverProvider provider = driverSpiLoader.getProvider(driverType);
+        if (provider != null) {
+            try {
+                DeviceDriver driver = provider.createDriver(config);
+                
+                // 手动注入Spring依赖
+                autowireCapableBeanFactory.autowireBean(driver);
+                
+                log.info("通过SPI创建驱动实例: {} - {}", driverType, provider.getClass().getName());
+                return driver;
+            } catch (Exception e) {
+                log.warn("SPI创建驱动失败，尝试注解扫描方式: {}", e.getMessage());
+            }
+        }
+        
+        // 2. 回退到注解扫描方式（兼容旧代码）
         String driverClass = vip.xiaonuo.iot.core.driver.DriverRegistry.getDriverClass(driverType);
         if (driverClass == null) {
-            throw new CommonException("不支持的驱动类型: {}，请确保驱动类上已添加@Driver注解", driverType);
+            throw new CommonException("不支持的驱动类型: {}，请确保驱动类上已添加@Driver注解或实现DriverProvider接口", driverType);
         }
         
         try {
@@ -146,7 +185,7 @@ public class DriverManager {
             // 手动注入Spring依赖
             autowireCapableBeanFactory.autowireBean(driver);
             
-            log.info("创建驱动实例: {} - {}", driverType, driverClass);
+            log.info("通过注解扫描创建驱动实例: {} - {}", driverType, driverClass);
             return driver;
         } catch (Exception e) {
             log.error("创建驱动实例失败: {}", driverType, e);

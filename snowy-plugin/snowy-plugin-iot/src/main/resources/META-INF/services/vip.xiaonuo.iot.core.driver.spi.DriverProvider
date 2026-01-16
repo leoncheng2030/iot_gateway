@@ -1,0 +1,6 @@
+# IoT Gateway Driver Providers
+# SPI配置文件，用于注册驱动提供者
+vip.xiaonuo.iot.core.driver.spi.provider.ModbusTcpDriverProvider
+vip.xiaonuo.iot.core.driver.spi.provider.S7DriverProvider
+vip.xiaonuo.iot.core.driver.spi.provider.MqttDriverProvider
+vip.xiaonuo.iot.core.driver.spi.provider.HttpDriverProvider
