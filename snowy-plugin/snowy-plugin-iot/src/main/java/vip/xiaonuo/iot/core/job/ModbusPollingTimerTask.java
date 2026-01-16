@@ -72,6 +72,11 @@ public class ModbusPollingTimerTask implements CommonTimerTaskRunner {
     private final Map<String, Integer> offlineRetryCount = new ConcurrentHashMap<>();
     
     /**
+     * 销毁标志（防止在销毁过程中访问Bean）
+     */
+    private volatile boolean destroying = false;
+    
+    /**
      * 初始化线程池
      */
     @PostConstruct
@@ -100,22 +105,43 @@ public class ModbusPollingTimerTask implements CommonTimerTaskRunner {
      */
     @PreDestroy
     public void destroy() {
-        if (pollingExecutor != null) {
+        log.info("开始销毁Modbus轮询任务...");
+        
+        // 设置销毁标志，防止新的任务执行
+        destroying = true;
+        
+        // 1. 先停止线程池，不再接受新任务
+        if (pollingExecutor != null && !pollingExecutor.isShutdown()) {
             pollingExecutor.shutdown();
             try {
-                if (!pollingExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                // 等待当前任务完成（最多等待5秒）
+                if (!pollingExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.warn("线程池未能在5秒内正常关闭，强制关闭");
                     pollingExecutor.shutdownNow();
+                    // 再等待2秒
+                    if (!pollingExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                        log.error("线程池强制关闭失败");
+                    }
                 }
                 log.info("Modbus轮询线程池已关闭");
             } catch (InterruptedException e) {
+                log.warn("等待线程池关闭被中断，强制关闭");
                 pollingExecutor.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }
+        
+        log.info("Modbus轮询任务销毁完成");
     }
 
     @Override
     public void action(String extJson) {
+        // 防止在销毁过程中执行任务
+        if (destroying) {
+            log.debug("Modbus轮询任务正在销毁，跳过此次轮询");
+            return;
+        }
+        
         try {
             // 1. 查询所有 MODBUS_TCP 类型且运行中的驱动
             LambdaQueryWrapper<IotDeviceDriver> driverQuery = new LambdaQueryWrapper<>();

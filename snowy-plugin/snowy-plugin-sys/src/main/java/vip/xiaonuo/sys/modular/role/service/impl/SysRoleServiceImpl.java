@@ -456,7 +456,22 @@ public class SysRoleServiceImpl extends ServiceImpl<SysRoleMapper, SysRole> impl
 
         Object permissionResourceObject = commonCacheOperator.get(CacheConstant.PERMISSION_RESOURCE_CACHE_KEY);
         if(Objects.nonNull(permissionResourceObject)){
-            permissionResult = Convert.toList(String.class,permissionResourceObject);
+            // 处理不同类型的返回值（ArrayList、JSONArray 等）
+            if (permissionResourceObject instanceof List) {
+                for (Object item : (List<?>) permissionResourceObject) {
+                    if (item != null) {
+                        permissionResult.add(item.toString());
+                    }
+                }
+            } else {
+                // 尝试使用 JSONUtil 解析
+                try {
+                    permissionResult = JSONUtil.toList(JSONUtil.parseArray(permissionResourceObject), String.class);
+                } catch (Exception e) {
+                    // 降级使用 Convert
+                    permissionResult = Convert.toList(String.class, permissionResourceObject);
+                }
+            }
         }
 
         return CollectionUtil.sortByPinyin(permissionResult.stream().filter(api ->
